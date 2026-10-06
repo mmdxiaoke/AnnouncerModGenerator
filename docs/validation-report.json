@@ -1,0 +1,116 @@
+{
+  "detector_cases": 11,
+  "input_errors_and_overwrite": "passed",
+  "regular": [
+    {
+      "event": "cornerboost",
+      "correlation": 0.9978400434370147,
+      "tail_correlation": 0.991907567420347,
+      "timeline_ms": 1365
+    },
+    {
+      "event": "demodash",
+      "correlation": 0.9989484824878128,
+      "tail_correlation": 0.9896809312454552,
+      "timeline_ms": 1063
+    },
+    {
+      "event": "fastbubble",
+      "correlation": 0.9971281497783717,
+      "tail_correlation": 0.9190805164374195,
+      "timeline_ms": 1365
+    },
+    {
+      "event": "hyperdash",
+      "correlation": 0.9980074544726125,
+      "tail_correlation": 0.9937034299931959,
+      "timeline_ms": 1121
+    },
+    {
+      "event": "neutral",
+      "correlation": 0.9986106651380843,
+      "tail_correlation": 0.9996333860647837,
+      "timeline_ms": 970
+    },
+    {
+      "event": "superdash",
+      "correlation": 0.996642699234941,
+      "tail_correlation": 0.9922208122522448,
+      "timeline_ms": 1446
+    },
+    {
+      "event": "ultradash",
+      "correlation": 0.9983462883971468,
+      "tail_correlation": 0.990860860611449,
+      "timeline_ms": 1319
+    },
+    {
+      "event": "wallbounce",
+      "correlation": 0.9984126639129715,
+      "tail_correlation": 0.9730614311585355,
+      "timeline_ms": 1237
+    },
+    {
+      "event": "wavedash",
+      "correlation": 0.9984054514630509,
+      "tail_correlation": 0.9960940544133134,
+      "timeline_ms": 1133
+    }
+  ],
+  "long": [
+    {
+      "event": "cornerboost",
+      "correlation": 0.99784003566256,
+      "tail_correlation": 0.9978178927143535,
+      "timeline_ms": 6427
+    },
+    {
+      "event": "demodash",
+      "correlation": 0.998948482633056,
+      "tail_correlation": 0.9989400804230536,
+      "timeline_ms": 4918
+    },
+    {
+      "event": "fastbubble",
+      "correlation": 0.9971282093388071,
+      "tail_correlation": 0.9971282427179612,
+      "timeline_ms": 6427
+    },
+    {
+      "event": "hyperdash",
+      "correlation": 0.9980075165601581,
+      "tail_correlation": 0.9979979969271601,
+      "timeline_ms": 5208
+    },
+    {
+      "event": "neutral",
+      "correlation": 0.9986106426440016,
+      "tail_correlation": 0.9986211778674596,
+      "timeline_ms": 4453
+    },
+    {
+      "event": "superdash",
+      "correlation": 0.9966427090542977,
+      "tail_correlation": 0.9965623982981173,
+      "timeline_ms": 6834
+    },
+    {
+      "event": "ultradash",
+      "correlation": 0.998346251338486,
+      "tail_correlation": 0.9978962074263434,
+      "timeline_ms": 6195
+    },
+    {
+      "event": "wallbounce",
+      "correlation": 0.9984125992811081,
+      "tail_correlation": 0.9976334022392822,
+      "timeline_ms": 5789
+    },
+    {
+      "event": "wavedash",
+      "correlation": 0.9984054530939306,
+      "tail_correlation": 0.9984043222718983,
+      "timeline_ms": 5266
+    }
+  ]
+}

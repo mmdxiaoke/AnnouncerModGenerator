@@ -1,0 +1,18 @@
+/dist/
+/dependencies/
+*.zip
+*.bank
+*.mp3
+*.wav
+*.flac
+*.ogg
+*.dll
+*.exe
+*.pdb
+__pycache__/
+/tests/长语音 inputs/
+/tests/inputs.json
+/tests/detector_il.json
+/tests/测试报告.json
+/tests/界面.png
+

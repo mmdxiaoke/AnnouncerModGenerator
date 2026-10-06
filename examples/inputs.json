@@ -1,0 +1,11 @@
+{
+  "cornerboost": "audio/CornerBoost.mp3",
+  "demodash": "audio/Demodash.mp3",
+  "fastbubble": "audio/fastbubble.mp3",
+  "hyperdash": "audio/Hyperdash.mp3",
+  "neutral": "audio/NeutralJump.mp3",
+  "superdash": "audio/superdash.mp3",
+  "ultradash": "audio/UltraDash.mp3",
+  "wallbounce": "audio/WallBounce.mp3",
+  "wavedash": "audio/wavedash.mp3"
+}
