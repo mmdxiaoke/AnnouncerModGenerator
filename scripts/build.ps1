@@ -52,4 +52,3 @@ if ($TemplateZip) {
     Copy-Item -LiteralPath $taskTemplate -Destination (Join-Path $taskDist 'TechAnnouncer.zip') -Force
 }
 Write-Output "Built successfully: $taskDist"
-

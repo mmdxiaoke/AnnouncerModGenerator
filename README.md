@@ -8,11 +8,12 @@ Windows 图形工具：输入九条音频，自动生成 Everest 版《蔚蓝》
 
 ## 使用
 
-1. 从本仓库的 Releases 下载工具 ZIP 并解压。保留 `AnnouncerMod生成器.exe` 和 `Mono.Cecil.dll` 在同一目录。
-2. 自行取得 **TechAnnouncer 1.0.1**，将原版 `TechAnnouncer.zip` 放在程序旁边。公开版不包含这个第三方模板。
-3. 准备 FFmpeg。把 `ffmpeg.exe` 放在程序旁边，或在窗口中选择它。程序也会尝试从 PATH、FFMPEG_PATH 和部分 Steam 游戏目录查找。
-4. 双击程序，选择九条音频，填写语音包名字，点击“生成 Mod ZIP”。
-5. 将生成的 ZIP 放入蔚蓝 `Mods` 文件夹。在 Mod 选项中开启你填写的名字对应的 **Enabled**；关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报的 Enabled，避免重复播报。
+1. 从本仓库的 Releases 下载 **v1.1.2 或更新版本**的工具 ZIP 并解压。
+2. 自行取得有权使用的 `TechAnnouncer.zip`，放在程序旁边；从 [FFmpeg 官方下载页](https://ffmpeg.org/download.html) 选择 Windows 构建，将解压后的 `ffmpeg.exe` 放在程序旁边，也可以在界面中指定路径。
+3. 双击 `AnnouncerMod生成器.exe`，选择九条音频，填写语音包名字，点击“生成 Mod ZIP”。
+4. 将生成的 ZIP 放入蔚蓝 `Mods` 文件夹。在 Mod 选项中开启你填写的名字对应的 **Enabled**；关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报的 Enabled，避免重复播报。
+
+**下载包不包含 TechAnnouncer 模板和 FFmpeg。** 保留程序旁边的 `Mono.Cecil.dll`，并自行准备上述依赖。此前包含依赖的 v1.1.1 已撤回。
 
 名字以英文字母开头，长度 3–64 位，可使用英文、数字、下划线和短横线。每条音频必须是不同的文件，长度 0.01–30 秒，不能是全静音。支持 MP3、WAV、OGG、FLAC、M4A、AAC、WMA、OPUS、AIFF。生成的 Mod 不需要 FFmpeg，也不依赖另装 TechAnnouncer。
 
@@ -44,13 +45,13 @@ Windows 自带的 .NET Framework 编译器即可编译，不需要安装 Python�
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
-脚本从 NuGet 官方源下载固定版本的 Mono.Cecil，并检查包的 SHA-256，输出到 `dist`。生成器运行时需要原版 TechAnnouncer ZIP，可手动复制进去，或编译时指定：
+脚本从 NuGet 官方源下载固定版本的 Mono.Cecil，并检查包的 SHA-256，输出到 `dist`。默认仅编译生成器，不下载或内置模板及 FFmpeg。可为本地使用指定自行准备的模板：
 
 ```powershell
 .\scripts\build.ps1 -TemplateZip 'D:\素材\TechAnnouncer.zip'
 ```
 
-离线编译可通过 `-CecilPath` 指定已有的 Mono.Cecil 0.10.4 DLL。`scripts/package.ps1` 会打包公开发布文件，排除第三方模板和输入音频。
+离线编译可通过 `-CecilPath` 指定已有的 Mono.Cecil 0.10.4 DLL。`scripts/package.ps1` 将程序、Mono.Cecil、使用说明及许可打包为 v1.1.2 下载包；即使本地 `dist` 存在模板、FFmpeg 或用户音频，打包也不会包含它们。
 
 ## 命令行
 
@@ -66,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 
 这些验证没有进行游戏内实际操作，Demo Dash 仍需在游戏中复测。
 
-集成测试需要 Python、NumPy、本地蔚蓝游戏、FFmpeg 和九条自备音频，不会下载游戏资源：
+集成测试需要 Python、NumPy、本地蔚蓝游戏和九条自备音频，不会下载游戏资源。请指定自行安装的 FFmpeg：
 
 ```powershell
 $env:ANNOUNCER_AUDIO_DIR = 'D:\音频'
@@ -77,11 +78,19 @@ python .\tests\test_generator.py
 
 测试会在 `tests` 下生成临时音频及 ZIP；这些文件由 Git 忽略。
 
+下载包验证检查模板和 FFmpeg 未被打包，并用本地自备依赖及九条音频检查生成功能：
+
+```powershell
+$env:ANNOUNCER_TEMPLATE_ZIP = 'D:\素材\TechAnnouncer.zip'
+python .\tests\test_distribution.py
+```
+
 ## 来源与许可
 
-本仓库的生成器代码按 MIT 许可发布。第三方模板及输入音频不属于该许可，也没有随公开仓库或工具包分发。请自行确认素材及生成 Mod 的分发许可。
+本仓库的生成器代码按 MIT 许可发布。TechAnnouncer 原有程序和声音不属于该 MIT 许可，本仓库及下载包不分发模板。请自行确认所用模板及音频的使用、修改和再分发授权；生成工具不授予这些素材的权利。FFmpeg 由用户自行安装，以独立进程执行，本仓库及下载包不分发其二进制。
 
 - [制作教程](https://www.bilibili.com/opus/1033106442681319432)
 - 技巧检测与模板：Brokemia 的 TechAnnouncer 1.0.1。
 - 程序集编辑：[Mono.Cecil](https://github.com/jbevain/cecil)，MIT 许可。完整声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。
+- [FFmpeg 官方下载来源](https://ffmpeg.org/download.html)。Windows 二进制构建由该页面列出的第三方提供，适用许可请以所选构建说明为准。
 

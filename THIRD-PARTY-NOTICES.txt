@@ -25,13 +25,9 @@ ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-TechAnnouncer 1.0.1 binary and bank
-Author: Brokemia
-Origin: the user's supplied TechAnnouncer.zip.
-The generated DLL retains the original detection code except for the
-Demo Dash playback fix, and changes its assembly identity, namespace,
-configuration filename and default voice pack for independent use.
-No license file was present in the supplied archive.
-
-Public source and release distributions exclude the original TechAnnouncer
-ZIP, binary, bank and audio. Users must supply that template separately.
+External dependencies (not distributed in this repository or release)
+TechAnnouncer 1.0.1: original author Brokemia.
+Users must supply their own authorized template and audio.
+The generator's MIT license does not grant rights to those materials.
+FFmpeg: https://ffmpeg.org/download.html
+Users install FFmpeg separately; its chosen build's own license applies.
