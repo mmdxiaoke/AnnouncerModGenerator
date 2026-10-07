@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
         assert info['volumes']['demodash']==100
         archive.extract('bin/FullIndependent.dll',target)
     dll = target / 'bin/FullIndependent.dll'
-    runtime = subprocess.run([str(repo/'dependencies/IndependentRuntimeTest.exe'),str(dll)], capture_output=True,text=True)
+    runtime = subprocess.run([str(repo/'dependencies/IndependentRuntimeTest.exe'),str(dll)], capture_output=True,encoding='utf-8',errors='replace')
     assert runtime.returncode == 0, runtime.stdout + runtime.stderr
     print(runtime.stdout.strip(),flush=True)
     # Export embedded WAVs and validate external type/member references against installed game.
@@ -145,6 +145,6 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
                 checked.append({'event':event,'variant':variant,'seconds':len(expected)/48000,'correlation':score})
             print('FMOD direct WAV:',event,'5/5',flush=True)
     finally: os.chdir(previous)
-    (repo/'docs/v1.4-validation.json').write_text(json.dumps({'version':'1.4.0','runtime_hooks':'passed','ultra_regressions':'collision after dash end and ground coroutine passed','bubble_regressions':'manual green and red exits, duplicate guard passed','event_volumes':'13 controls, defaults, live changes, mute and master multiplication passed','game_api_members':'passed',
+    (repo/'docs/v1.4.1-validation.json').write_text(json.dumps({'version':'1.4.1','runtime_hooks':'passed','ultra_regressions':'24 consecutive waves, post-dash 1.2x landing followed by normal/super jump, one announcement, invalid multipliers and stale landing cancellation passed','bubble_regressions':'manual green and red exits, duplicate guard passed','event_volumes':'13 controls, defaults, live changes, mute and master multiplication passed','game_api_members':'92 verified', 'runtime_checks':int(runtime.stdout.strip().split()[-1]),
         'template_required':False,'fmod_version':'1.10.20','clips':checked,'gameplay_tested':False},indent=2),encoding='utf-8')
 print('PASS: template-free generation, runtime hooks, inputs, 65 direct WAV clips through gameplay SFX bus.')

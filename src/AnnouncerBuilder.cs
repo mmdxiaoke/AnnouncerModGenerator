@@ -20,7 +20,7 @@ public static class Builder {
     public static readonly string[] Labels = { "抓角加速", "下蹲冲刺", "泡泡快启", "Hyper", "中性跳", "Super", "Ultra", "蹭墙跳", "凌波微步", "普通死亡", "带金草莓死亡", "吃掉草莓", "吃掉金草莓" };
     public static readonly string[] Extensions = { ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".wma", ".opus", ".aiff", ".aif" };
     const int Rate = 48000, MaximumBytes = Rate * 2 * 30;
-    public const string Version = "1.4.0";
+    public const string Version = "1.4.1";
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
     public static string DetectEvent(string path) {
@@ -176,7 +176,7 @@ public static class Builder {
         }
         byte[] runtime;
         using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(Resource("runtime.support")))) {
-            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 4, 0, 0);
+            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 4, 1, 0);
             assembly.MainModule.Name = name + ".dll"; assembly.MainModule.Mvid = Guid.NewGuid();
             foreach (var clip in clips) assembly.MainModule.Resources.Add(new EmbeddedResource(clip.Key, Mono.Cecil.ManifestResourceAttributes.Private, clip.Value));
             string config = String.Join(";", selected.Select(p => p.Key + "=" + p.Value.Count));

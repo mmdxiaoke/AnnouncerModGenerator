@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -100,7 +100,12 @@ public sealed class AnnouncerModule : EverestModule {
     FMOD.Studio.Bus bus;
     FMOD.ChannelGroup group;
     bool loaded, busLocked, audioErrorLogged;
-    class Dash { public Vector2 Direction; public float StartSpeed; public int Serial; public bool Airborne, Ultra, Fresh, BubbleAnnounced; }
+    class Dash {
+        public Vector2 Direction;
+        public int Serial, UltraDirection;
+        public float UltraSpeed;
+        public bool Airborne, Fresh, BubbleAnnounced, PendingUltra, LandedThisUpdate;
+    }
     static readonly Dictionary<string, FieldInfo> Fields = new Dictionary<string, FieldInfo>();
     static readonly FieldInfo Collected = typeof(Strawberry).GetField("collected", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
     static T Field<T>(Player player, string name, T fallback) {
@@ -125,6 +130,7 @@ public sealed class AnnouncerModule : EverestModule {
         On.Celeste.Player.DashCoroutine += DashCoroutine;
         On.Celeste.Player.BoostBegin += BoostBegin;
         On.Celeste.Player.SuperJump += SuperJump;
+        On.Celeste.Player.Jump += Jump;
         On.Celeste.Player.SuperWallJump += WallBounce;
         On.Celeste.Player.WallJump += WallJump;
         On.Celeste.Player.ClimbJump += ClimbJump;
@@ -141,6 +147,7 @@ public sealed class AnnouncerModule : EverestModule {
         On.Celeste.Player.DashCoroutine -= DashCoroutine;
         On.Celeste.Player.BoostBegin -= BoostBegin;
         On.Celeste.Player.SuperJump -= SuperJump;
+        On.Celeste.Player.Jump -= Jump;
         On.Celeste.Player.SuperWallJump -= WallBounce;
         On.Celeste.Player.WallJump -= WallJump;
         On.Celeste.Player.ClimbJump -= ClimbJump;
@@ -201,7 +208,25 @@ public sealed class AnnouncerModule : EverestModule {
             else voice.Channel.setVolume(gain);
         }
     }
-    void Update(On.Celeste.Player.orig_Update orig, Player self) { orig(self); Refresh(); }
+    static bool KeepsUltraSpeed(Player self, Dash dash) {
+        return Math.Sign(self.Speed.X) == dash.UltraDirection && Math.Abs(self.Speed.X) >= dash.UltraSpeed / 1.2f - .01f;
+    }
+    void CancelUltra(Player self) {
+        Dash dash;
+        if (dashes.TryGetValue(self, out dash)) { dash.PendingUltra = false; dash.Fresh = false; }
+    }
+    void Update(On.Celeste.Player.orig_Update orig, Player self) {
+        orig(self);
+        Dash dash;
+        if (dashes.TryGetValue(self, out dash) && dash.PendingUltra) {
+            // onGround is sampled before movement, so it can still be false in
+            // the Update that ran the landing callback. Allow that frame only.
+            bool landed = dash.LandedThisUpdate; dash.LandedThisUpdate = false;
+            if (self.Dead || self.StateMachine.State != 0 || !KeepsUltraSpeed(self, dash) || self.Speed.Y < -.01f ||
+                (!landed && !Field(self, "onGround", false))) dash.PendingUltra = false;
+        }
+        Refresh();
+    }
     void CallDash(On.Celeste.Player.orig_CallDashEvents orig, Player self) {
         bool already = Field(self, "calledDashEvents", false);
         orig(self);
@@ -211,60 +236,68 @@ public sealed class AnnouncerModule : EverestModule {
         Vector2 aim = Field(self, "lastAim", self.DashDir);
         // Ground contact can flatten a downward dash before this callback.
         if (self.Ducking && Math.Abs(aim.X) > .01f && aim.Y > .01f) dash.Direction = aim;
-        dash.Airborne = !Field(self, "dashStartedOnGround", true); dash.Ultra = false; dash.Fresh = true;
-        dash.StartSpeed = Math.Abs(self.Speed.X); dash.Serial++;
+        dash.Airborne = !Field(self, "dashStartedOnGround", true); dash.PendingUltra = false; dash.LandedThisUpdate = false; dash.Fresh = true;
+        dash.Serial++;
         if (Math.Abs(self.DashDir.X) > .01f && Math.Abs(self.DashDir.Y) < .01f && (self.Ducking || Field(self, "demoDashed", false))) Announce("demodash");
     }
     void SuperJump(On.Celeste.Player.orig_SuperJump orig, Player self) {
         bool duck = self.Ducking; Dash dash;
         bool wave = dashes.TryGetValue(self, out dash) && dash.Fresh && dash.Airborne && Math.Abs(dash.Direction.X) > .01f && dash.Direction.Y > .01f;
+        bool ultra = TakeUltra(self, dash);
         orig(self);
-        if (dash != null) dash.Fresh = false;
-        Announce(duck ? (wave ? "wavedash" : "hyperdash") : "superdash");
+        if (ultra && self.Speed.Y < -.01f) Announce("ultradash");
+        else Announce(duck ? (wave ? "wavedash" : "hyperdash") : "superdash");
     }
-    void WallBounce(On.Celeste.Player.orig_SuperWallJump orig, Player self, int dir) { orig(self, dir); Announce("wallbounce"); }
+    static bool TakeUltra(Player self, Dash dash) {
+        if (dash == null) return false;
+        bool ultra = dash.PendingUltra && !self.Dead && self.StateMachine.State == 0 &&
+            Math.Abs(self.Speed.Y) < .01f && KeepsUltraSpeed(self, dash);
+        // Consume before orig to prevent nested hooks or later jumps replaying it.
+        dash.PendingUltra = false; dash.Fresh = false;
+        return ultra;
+    }
+    void Jump(On.Celeste.Player.orig_Jump orig, Player self, bool particles, bool playSfx) {
+        Dash dash; dashes.TryGetValue(self, out dash);
+        bool ultra = TakeUltra(self, dash);
+        orig(self, particles, playSfx);
+        if (ultra && self.Speed.Y < -.01f) Announce("ultradash");
+    }
+    void WallBounce(On.Celeste.Player.orig_SuperWallJump orig, Player self, int dir) { CancelUltra(self); orig(self, dir); Announce("wallbounce"); }
     void WallJump(On.Celeste.Player.orig_WallJump orig, Player self, int dir) {
-        bool neutral = Input.MoveX.Value == 0; orig(self, dir); if (neutral) Announce("neutral");
+        bool neutral = Input.MoveX.Value == 0; CancelUltra(self); orig(self, dir); if (neutral) Announce("neutral");
     }
     void ClimbJump(On.Celeste.Player.orig_ClimbJump orig, Player self) {
         float before = self.Speed.X * (int)self.Facing;
         bool corner = before > 0 && !Field(self, "onGround", true) && !self.CollideCheck<Solid>(self.Position + new Vector2((int)self.Facing, -6));
-        orig(self);
+        CancelUltra(self); orig(self);
         if (corner && self.Speed.X * (int)self.Facing > before && self.Speed.Y < 0) Announce("cornerboost");
-    }
-    static bool CarriedDownDash(Vector2 direction, float speed) {
-        return Math.Abs(direction.X) > .01f && direction.Y > .01f && speed > 240f * Math.Abs(direction.X) + 1f;
-    }
-    void ConfirmUltra(Player self, Dash dash, Vector2 direction, float beforeSpeed) {
-        // The game applies this boost even after StDash has ended, and also
-        // directly inside DashCoroutine when the player is already on ground.
-        if (!dash.Ultra && CarriedDownDash(direction, beforeSpeed) && Math.Abs(self.DashDir.Y) < .01f &&
-            Math.Sign(self.DashDir.X) == Math.Sign(direction.X) && Math.Abs(self.Speed.Y) < .01f && Math.Abs(self.Speed.X) > beforeSpeed * 1.1f) {
-            dash.Ultra = true; Announce("ultradash");
-        }
     }
     void CollideV(On.Celeste.Player.orig_OnCollideV orig, Player self, CollisionData data) {
         Vector2 direction = self.DashDir; float speed = Math.Abs(self.Speed.X);
-        bool falling = self.Speed.Y > 0; Dash dash = dashes.GetOrCreateValue(self);
+        Dash dash = dashes.GetOrCreateValue(self); int serial = dash.Serial;
+        // A Wave can also get a collision multiplier during StDash. Only a
+        // completed diagonal-down dash landing in StNormal can arm Ultra.
+        bool eligible = dash.Fresh && self.StateMachine.State == 0 && self.Speed.Y > 0 && speed > .01f &&
+            Math.Abs(direction.X) > .01f && direction.Y > .01f &&
+            Math.Abs(dash.Direction.X) > .01f && dash.Direction.Y > .01f &&
+            Math.Sign(self.Speed.X) == Math.Sign(direction.X);
         orig(self, data);
-        if (falling) ConfirmUltra(self, dash, direction, speed);
+        float boosted = speed * 1.2f;
+        if (eligible && dash.Serial == serial && self.StateMachine.State == 0 &&
+            Math.Abs(self.DashDir.Y) < .01f && Math.Sign(self.DashDir.X) == Math.Sign(direction.X) &&
+            Math.Sign(self.Speed.X) == Math.Sign(direction.X) && Math.Abs(self.Speed.Y) < .01f &&
+            Math.Abs(Math.Abs(self.Speed.X) - boosted) <= Math.Max(.01f, boosted * .001f)) {
+            dash.PendingUltra = true; dash.LandedThisUpdate = true;
+            dash.UltraSpeed = Math.Abs(self.Speed.X); dash.UltraDirection = Math.Sign(self.Speed.X);
+        }
     }
-    IEnumerator DashCoroutine(On.Celeste.Player.orig_DashCoroutine orig, Player self) { return ObserveDash(orig(self), self); }
-    IEnumerator ObserveDash(IEnumerator original, Player self) {
-        try {
-            while (true) {
-                Dash dash = dashes.GetOrCreateValue(self); int serial = dash.Serial;
-                bool more = original.MoveNext();
-                // CallDash captures the direction and speed before the game's
-                // coroutine flattens the dash and multiplies carried speed.
-                if (dash.Serial != serial) ConfirmUltra(self, dash, dash.Direction, dash.StartSpeed);
-                if (!more) yield break;
-                yield return original.Current;
-            }
-        } finally { var disposable = original as IDisposable; if (disposable != null) disposable.Dispose(); }
+    IEnumerator DashCoroutine(On.Celeste.Player.orig_DashCoroutine orig, Player self) {
+        // Starting another dash invalidates the landing even before freeze ends
+        // and CallDashEvents runs. Never treat startup acceleration as Ultra.
+        CancelUltra(self); return orig(self);
     }
     void BoostBegin(On.Celeste.Player.orig_BoostBegin orig, Player self) {
-        dashes.GetOrCreateValue(self).BubbleAnnounced = false; orig(self);
+        CancelUltra(self); dashes.GetOrCreateValue(self).BubbleAnnounced = false; orig(self);
     }
     int BoostUpdate(On.Celeste.Player.orig_BoostUpdate orig, Player self) {
         bool inBubble = self.StateMachine.State == 4;
@@ -281,6 +314,7 @@ public sealed class AnnouncerModule : EverestModule {
             if (berry != null && berry.Golden) { golden = true; break; }
         }
         PlayerDeadBody body = orig(self, direction, evenIfInvincible, registerDeathInStats);
+        if (body != null) CancelUltra(self);
         if (!wasDead && body != null) Announce(golden ? "goldendeath" : "death");
         return body;
     }

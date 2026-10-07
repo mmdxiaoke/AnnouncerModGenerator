@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.IO;
 using System.Reflection;
@@ -16,12 +16,20 @@ class IndependentRuntimeTest {
  static void Silent(Action action) { int before=core.Channels.Count; action(); Assert(core.Channels.Count==before,"unexpected audio"); }
  static Player New() { return new Player(); }
  static void Dash(Player p, Vector2 direction, bool ground) { p.DashDir=direction; p.lastAim=direction; p.dashStartedOnGround=ground; p.calledDashEvents=false; On.Celeste.Player.TestCallDashEvents(delegate(Player x) { x.calledDashEvents=true; },p); }
- static void Jump(Player p) { On.Celeste.Player.TestSuperJump(delegate(Player x) { x.Ducking=false; },p); }
+ static void Jump(Player p) { On.Celeste.Player.TestSuperJump(delegate(Player x) { x.Ducking=false; x.Speed.Y=-105; },p); }
  static IEnumerator GroundDash(Player p) {
   yield return "freeze";
   p.Speed=new Vector2(300,170); Dash(p,new Vector2(.707f,.707f),true);
   p.Speed=new Vector2(360,0); p.DashDir=new Vector2(1,0); p.Ducking=true;
   yield return "after-boost";
+ }
+ static void Land(Player p,float multiplier) {
+  On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(x.Speed.X*multiplier,0);x.DashDir=new Vector2(Math.Sign(x.Speed.X),0);x.Ducking=true;x.onGround=true; },p,new CollisionData());
+ }
+ static void NormalJump(Player p) {
+  int calls=0;
+  On.Celeste.Player.TestJump(delegate(Player x,bool particles,bool sfx) { calls++;Assert(!particles && sfx,"original jump flags");x.Speed.Y=-105;x.onGround=false; },p,false,true);
+  Assert(calls==1,"original normal jump once");
  }
  static PlayerDeadBody Kill(Player p) { return On.Celeste.Player.TestDie(delegate(Player x,Vector2 d,bool a,bool b) { x.Leader.Followers.Clear(); x.Dead=true; return new PlayerDeadBody(); },p,new Vector2(),false,true); }
  static void Setting(string key, object value) { settings.GetType().GetProperty(key).SetValue(settings,value,null); }
@@ -53,25 +61,82 @@ class IndependentRuntimeTest {
   p=New();p.Speed=new Vector2(100,0); Expect("cornerboost",delegate { On.Celeste.Player.TestClimbJump(delegate(Player x) { x.Speed=new Vector2(140,-105); },p); });
   p.TestWall=true; Silent(delegate { On.Celeste.Player.TestClimbJump(delegate(Player x) { x.Speed=new Vector2(180,-105); },p); });
   p=New();p.onGround=true;p.Speed=new Vector2(100,0); Silent(delegate { On.Celeste.Player.TestClimbJump(delegate(Player x) { x.Speed=new Vector2(140,-105); },p); });
-  p=New();p.StateMachine.State=2;Dash(p,new Vector2(.707f,.707f),false);p.Speed=new Vector2(300,170);
-  Expect("ultradash",delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(360,0); x.DashDir=new Vector2(1,0); },p,new CollisionData()); });
-  p.DashDir=new Vector2(.707f,.707f);p.Speed=new Vector2(360,170); Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(432,0); },p,new CollisionData()); });
-  p=New();p.StateMachine.State=2;Dash(p,new Vector2(.707f,.707f),false);p.Speed=new Vector2(169.7f,170);
-  Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(203.64f,0); },p,new CollisionData()); });
-  // Regression: Ultra landing after the dash state has ended, both directions.
+  // A fast, repeated Wave landing during StDash must never arm Ultra.
   foreach(int direction in new[] { -1,1 }) {
-   p=New();p.StateMachine.State=0;Dash(p,new Vector2(direction*.707f,.707f),false);p.Speed=new Vector2(direction*300,170);
-   Expect("ultradash",delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(direction*360,0); x.DashDir=new Vector2(direction,0); },p,new CollisionData()); });
+   p=New();
+   for(int repeat=0;repeat<12;repeat++) {
+    p.StateMachine.State=2;p.Ducking=true;Dash(p,new Vector2(direction*.707f,.707f),false);p.Speed=new Vector2(direction*(300+repeat*20),170);
+    Silent(delegate { Land(p,1.2f); });
+    Expect("wavedash",delegate { Jump(p); });
+   }
   }
-  // Regression: ground-start coroutine applies the boost without a collision callback.
+  // Only a real 1.2x landing AFTER StDash ends, followed by a jump, announces.
+  foreach(int direction in new[] { -1,1 }) foreach(bool super in new[] { false,true }) {
+   p=New();p.StateMachine.State=2;Dash(p,new Vector2(direction*.707f,.707f),false);
+   p.StateMachine.State=0;p.Speed=new Vector2(direction*300,170);
+   Silent(delegate { Land(p,1.2f); });
+   Expect("ultradash",delegate { if(super) Jump(p);else NormalJump(p); });
+   Silent(delegate { NormalJump(p); });
+  }
+  // No minimum carried-speed heuristic: verify the actual multiplier.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(120,80);
+  Silent(delegate { Land(p,1.2f); });Expect("ultradash",delegate { NormalJump(p); });
+  foreach(float multiplier in new[] { 1f,1.11f,1.19f,1.21f,1.3f }) {
+   p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
+   Silent(delegate { Land(p,multiplier);NormalJump(p); });
+  }
+  // Ending StDash inside the collision is still too early; state BEFORE
+  // contact is authoritative. Neither speed alone nor a non-down dash qualifies.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=2;p.Speed=new Vector2(300,170);
+  Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.StateMachine.State=0;x.Speed=new Vector2(360,0);x.DashDir=new Vector2(1,0); },p,new CollisionData());NormalJump(p); });
+  foreach(Vector2 aim in new[] { new Vector2(1,0),new Vector2(.707f,-.707f),new Vector2(0,1) }) {
+   p=New();Dash(p,aim,false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
+   Silent(delegate { Land(p,1.2f);NormalJump(p); });
+  }
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(360,0);
+  Silent(delegate { NormalJump(p); });
+  // Red dash and ground-start acceleration remain silent, even at high speed.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=5;p.Speed=new Vector2(300,170);
+  Silent(delegate { Land(p,1.2f);NormalJump(p); });
   p=New();p.StateMachine.State=2; int coroutineCalls=0;
   IEnumerator dashRoutine=On.Celeste.Player.TestDashCoroutine(delegate(Player x) { coroutineCalls++; return GroundDash(x); },p);
   Silent(delegate { Assert(dashRoutine.MoveNext() && (string)dashRoutine.Current=="freeze","original first yield"); });
-  Expect("ultradash",delegate { Assert(dashRoutine.MoveNext() && (string)dashRoutine.Current=="after-boost","original second yield"); });
+  Silent(delegate { Assert(dashRoutine.MoveNext() && (string)dashRoutine.Current=="after-boost","original second yield"); });
+  Expect("hyperdash",delegate { Jump(p); });
   Silent(delegate { Assert(!dashRoutine.MoveNext(),"original end"); });Assert(coroutineCalls==1,"original coroutine once");
-  // Only original game boost results count; upward collision/rebound must stay silent.
-  p=New();p.StateMachine.State=0;Dash(p,new Vector2(.707f,.707f),false);p.Speed=new Vector2(300,170);
-  Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(360,-100); },p,new CollisionData()); });
+  // A failed jump, new dash, wall jump, reversal, walk-off, death or lost boost
+  // must consume/cancel the pending landing so an unrelated later jump is silent.
+  for(int cancel=0;cancel<8;cancel++) {
+   p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);Silent(delegate { Land(p,1.2f); });
+   int reason=cancel;
+   Silent(delegate {
+    if(reason==0) On.Celeste.Player.TestJump(delegate(Player x,bool particles,bool sfx) { },p,false,true);
+    if(reason==1) Dash(p,new Vector2(0,-1),false);
+    if(reason==2) { Input.MoveX.Value=1;On.Celeste.Player.TestWallJump(delegate(Player x,int d) { },p,1); }
+    if(reason==3) p.Speed.X=-360;
+    if(reason==4) { p.onGround=false;p.Speed.Y=30; }
+    if(reason==5) { p.Dead=true;On.Celeste.Player.TestUpdate(delegate(Player x) { },p);p.Dead=false; }
+    if(reason==6) p.Speed.X=90;
+    if(reason==7) { On.Celeste.Player.TestDashCoroutine(delegate(Player x) { return GroundDash(x); },p); }
+    NormalJump(p);
+   });
+  }
+  // onGround is sampled before movement in Player.Update. Keep a new landing
+  // armed through that frame, then cancel when a subsequent frame leaves ground.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
+  Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { Land(x,1.2f);x.onGround=false; },p); });
+  p.onGround=true;Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { },p); });
+  Expect("ultradash",delegate { NormalJump(p); });
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
+  Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { Land(x,1.2f);x.onGround=false; },p); });
+  Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { },p);p.onGround=true;NormalJump(p); });
+  // Upward collision or rebound, and zero speed, cannot establish a landing.
+  foreach(float vy in new[] { -170f,0f }) {
+   p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,vy);
+   Silent(delegate { Land(p,1.2f);NormalJump(p); });
+  }
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
+  Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(360,-100);x.DashDir=new Vector2(1,0); },p,new CollisionData());NormalJump(p); });
   // Manual exits for green and red, with one announcement per bubble entry.
   foreach(int next in new[] { 2,5 }) {
    p=New();p.StateMachine.State=4;p.boostRed=next==5;

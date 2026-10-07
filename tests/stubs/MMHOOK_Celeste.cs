@@ -1,10 +1,14 @@
-using Celeste; using Microsoft.Xna.Framework;
+﻿using Celeste; using Microsoft.Xna.Framework;
 namespace On.Celeste {
  public static class Player {
   public delegate PlayerDeadBody orig_Die(global::Celeste.Player self, Vector2 direction, bool evenIfInvincible, bool registerDeathInStats);
   public delegate PlayerDeadBody hook_Die(orig_Die orig,global::Celeste.Player self, Vector2 direction, bool evenIfInvincible, bool registerDeathInStats);
   public static event hook_Die Die;
   public static PlayerDeadBody TestDie(orig_Die orig,global::Celeste.Player self, Vector2 direction, bool evenIfInvincible, bool registerDeathInStats) { return Die(orig,self, direction, evenIfInvincible, registerDeathInStats); }
+  public delegate void orig_Jump(global::Celeste.Player self,bool particles,bool playSfx);
+  public delegate void hook_Jump(orig_Jump orig,global::Celeste.Player self,bool particles,bool playSfx);
+  public static event hook_Jump Jump;
+  public static void TestJump(orig_Jump orig,global::Celeste.Player self,bool particles,bool playSfx) { if(Jump==null)orig(self,particles,playSfx);else Jump(orig,self,particles,playSfx); }
   public delegate void orig_SuperJump(global::Celeste.Player self);
   public delegate void hook_SuperJump(orig_SuperJump orig,global::Celeste.Player self);
   public static event hook_SuperJump SuperJump;
