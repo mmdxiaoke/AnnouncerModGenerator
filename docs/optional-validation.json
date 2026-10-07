@@ -1,0 +1,332 @@
+{
+  "runtime_hooks": "passed",
+  "input_cases": 10,
+  "fmod_clips": [
+    {
+      "event": "cornerboost",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "cornerboost",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "cornerboost",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "cornerboost",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "cornerboost",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "demodash",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "demodash",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "demodash",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "demodash",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "demodash",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "fastbubble",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "fastbubble",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "fastbubble",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "fastbubble",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "fastbubble",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "hyperdash",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "hyperdash",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "hyperdash",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "hyperdash",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "hyperdash",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "neutral",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "neutral",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "neutral",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "neutral",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "neutral",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "superdash",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "superdash",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "superdash",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "superdash",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "superdash",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "ultradash",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "ultradash",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "ultradash",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "ultradash",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "ultradash",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "wallbounce",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "wallbounce",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "wallbounce",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "wallbounce",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "wallbounce",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "wavedash",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "wavedash",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "wavedash",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "wavedash",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "wavedash",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "death",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "death",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "death",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "death",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "death",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "goldendeath",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "goldendeath",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "goldendeath",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "goldendeath",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "goldendeath",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "strawberry",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "strawberry",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "strawberry",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "strawberry",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "strawberry",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 1,
+      "correlation": 0.9999448598301567
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 2,
+      "correlation": 0.9999095362852889
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 3,
+      "correlation": 0.9998647279767139
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 4,
+      "correlation": 0.9998114620388302
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 5,
+      "correlation": 0.9997485503585717
+    }
+  ],
+  "gameplay_tested": false
+}

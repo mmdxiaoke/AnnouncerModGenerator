@@ -5,7 +5,7 @@ import json, os, shutil, subprocess, tempfile, zipfile
 repo = Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='distribution-test-', dir=repo/'dist') as temporary:
     target = Path(temporary)
-    with zipfile.ZipFile(repo/'dist/AnnouncerModGenerator-v1.1.2.zip') as archive:
+    with zipfile.ZipFile(repo/'dist/AnnouncerModGenerator-v1.2.0.zip') as archive:
         assert archive.testzip() is None
         names = archive.namelist()
         assert not any('techannouncer' in name.lower() or 'ffmpeg' in name.lower() for name in names), names

@@ -17,28 +17,36 @@ using Mono.Cecil.Cil;
 
 namespace AnnouncerBuilder {
 public static class Builder {
-    public static readonly string[] Events = { "cornerboost", "demodash", "fastbubble", "hyperdash", "neutral", "superdash", "ultradash", "wallbounce", "wavedash" };
-    public static readonly string[] Labels = { "抓角加速", "下蹲冲刺", "泡泡快启", "Hyper", "中性跳", "Super", "Ultra", "蹭墙跳", "凌波微步" };
+    public static readonly string[] Events = { "cornerboost", "demodash", "fastbubble", "hyperdash", "neutral", "superdash", "ultradash", "wallbounce", "wavedash", "death", "goldendeath", "strawberry", "goldenstrawberry" };
+    public static readonly string[] Labels = { "抓角加速", "下蹲冲刺", "泡泡快启", "Hyper", "中性跳", "Super", "Ultra", "蹭墙跳", "凌波微步", "普通死亡", "带金草莓死亡", "吃掉草莓", "吃掉金草莓" };
     public static readonly string[] Extensions = { ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".wma", ".opus", ".aiff", ".aif" };
     const int Rate = 48000, MaximumBytes = Rate * 2 * 30;
     const string TemplateHash = "0ef0f3fc74299b70b896410b5a1b58e0261e3d500322b88b1385f1248ad008b2";
+    public const string Version = "1.2.0";
+    static readonly string[] BankEvents = Events.Take(9).ToArray();
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
     public static string DetectEvent(string path) {
         string s = Regex.Replace(Path.GetFileNameWithoutExtension(path).ToLowerInvariant(), @"[\s_\-()]", "");
+        s = Regex.Replace(s, @"[1-5]$", "");
+        if (s == "normaldeath") return "death";
+        if (s == "golddeath") return "goldendeath";
+        if (s == "collectstrawberry") return "strawberry";
+        if (s == "collectgoldenstrawberry") return "goldenstrawberry";
         if (s == "neutraljump" || s == "中性跳") return "neutral";
         for (int i = 0; i < Events.Length; i++) if (s == Events[i] || s == Labels[i].ToLowerInvariant()) return Events[i];
         return null;
     }
-    public static Dictionary<string, string> ReadFolder(string folder) {
+    public static Dictionary<string, List<string>> ReadFolder(string folder) {
         if (!Directory.Exists(folder)) throw new Exception("音频文件夹不存在。");
-        var result = new Dictionary<string, string>();
+        var result = new Dictionary<string, List<string>>();
         foreach (string p in Directory.GetFiles(folder).OrderBy(x => x, StringComparer.OrdinalIgnoreCase)) {
             if (!Extensions.Contains(Path.GetExtension(p).ToLowerInvariant())) continue;
             string e = DetectEvent(p);
             if (e == null) continue;
-            if (result.ContainsKey(e)) throw new Exception("找到两条 " + e + " 音频，请在窗口中明确选择需要的文件。");
-            result[e] = Path.GetFullPath(p);
+            if (!result.ContainsKey(e)) result[e] = new List<string>();
+            if (result[e].Count == 5) throw new Exception(e + " 超过五条音频，请只保留最多五条。");
+            result[e].Add(Path.GetFullPath(p));
         }
         return result;
     }
@@ -138,28 +146,83 @@ public static class Builder {
             }
         }
     }
+    public static Dictionary<string, List<string>> ReadInputs(string manifest) {
+        manifest = Path.GetFullPath(manifest);
+        var raw = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(manifest, Encoding.UTF8));
+        if (raw == null) throw new Exception("音频映射应为 JSON 对象。");
+        var files = new Dictionary<string, List<string>>();
+        foreach (var pair in raw) {
+            if (!Events.Contains(pair.Key)) throw new Exception("未知播报项目：" + pair.Key);
+            var list = new List<string>();
+            if (pair.Value is string) { if (!String.IsNullOrWhiteSpace((string)pair.Value)) list.Add((string)pair.Value); }
+            else if (pair.Value != null) {
+                var items = pair.Value as System.Collections.IEnumerable;
+                if (items == null) throw new Exception(pair.Key + " 应为文件路径或路径数组。");
+                foreach (object item in items) { if (!(item is string) || String.IsNullOrWhiteSpace((string)item)) throw new Exception(pair.Key + " 包含无效音频路径。"); list.Add((string)item); }
+            }
+            files[pair.Key] = list.Select(f => Path.GetFullPath(Path.IsPathRooted(f) ? f : Path.Combine(Path.GetDirectoryName(manifest), f))).ToList();
+        }
+        return files;
+    }
     public static string Generate(string name, Dictionary<string, string> inputs, string outputPath, string ffmpeg, bool overwrite, Action<string> log) {
+        return Generate(name, inputs.ToDictionary(p => p.Key, p => String.IsNullOrWhiteSpace(p.Value) ? new List<string>() : new List<string> { p.Value }), outputPath, ffmpeg, overwrite, log);
+    }
+    public static string Generate(string name, Dictionary<string, List<string>> inputs, string outputPath, string ffmpeg, bool overwrite, Action<string> log) {
         if (!Regex.IsMatch(name ?? "", @"^[A-Za-z][A-Za-z0-9_-]{2,63}$")) throw new Exception("语音包名字须为 3–64 位英文、数字、下划线或短横线，并以英文字母开头。");
         if (String.Equals(name, "TechAnnouncer", StringComparison.OrdinalIgnoreCase)) throw new Exception("请使用新的语音包名字，避免覆盖 TechAnnouncer 本体。");
-        string slug = name.ToLowerInvariant();
-        if (!File.Exists(ffmpeg)) throw new Exception("未找到 FFmpeg，请选择 ffmpeg.exe，或把它放在生成器旁边。");
-        string missing = String.Join("、", Events.Where(e => !inputs.ContainsKey(e) || !File.Exists(inputs[e])));
-        if (missing.Length > 0) throw new Exception("缺少音频：" + missing);
-        if (inputs.Values.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 9) throw new Exception("请为九个技巧分别选择不同的音频文件。");
+        if (inputs.Keys.Any(e => !Events.Contains(e))) throw new Exception("音频映射包含未知播报项目。");
+        var selected = Events.ToDictionary(e => e, e => inputs.ContainsKey(e) && inputs[e] != null ? new List<string>(inputs[e]) : new List<string>());
+        foreach (var pair in selected) {
+            if (pair.Value.Count > 5) throw new Exception(pair.Key + " 最多添加五条音频。");
+            if (pair.Value.Any(f => String.IsNullOrWhiteSpace(f) || !File.Exists(f))) throw new Exception(pair.Key + " 的音频文件不存在。");
+            if (pair.Value.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).Count() != pair.Value.Count) throw new Exception(pair.Key + " 包含重复音频，请移除重复项。");
+        }
+        var allFiles = selected.Values.SelectMany(v => v).ToArray();
+        if (allFiles.Length > 0 && !File.Exists(ffmpeg)) throw new Exception("未找到 FFmpeg，请选择 ffmpeg.exe，或把它放在生成器旁边。");
         outputPath = Path.GetFullPath(outputPath);
         if (!String.Equals(Path.GetExtension(outputPath), ".zip", StringComparison.OrdinalIgnoreCase)) throw new Exception("输出文件应以 .zip 结尾。");
         if (File.Exists(outputPath) && !overwrite) throw new Exception("输出 ZIP 已存在，请另选文件名，或确认覆盖后重新生成。");
-        if (inputs.Values.Any(p => String.Equals(Path.GetFullPath(p), outputPath, StringComparison.OrdinalIgnoreCase))) throw new Exception("输出路径不能覆盖输入音频。");
-        var pcm = new Dictionary<string, byte[]>(); var sourceInfo = new Dictionary<string, object>();
-        for (int i = 0; i < Events.Length; i++) {
-            string e = Events[i]; log("转换 " + (i + 1) + "/9：" + e);
-            pcm[e] = Decode(inputs[e], ffmpeg);
-            sourceInfo[e] = new { file = Path.GetFileName(inputs[e]), seconds = pcm[e].Length / 96000.0, pcm_sha256 = SHA(pcm[e]) };
+        if (allFiles.Any(f => String.Equals(Path.GetFullPath(f), outputPath, StringComparison.OrdinalIgnoreCase))) throw new Exception("输出路径不能覆盖输入音频。");
+        var banks = new List<GeneratedBank>(); var sourceInfo = new Dictionary<string, object>(); int done = 0;
+        foreach (string e in Events) {
+            var sources = new List<object>();
+            for (int variant = 0; variant < selected[e].Count; variant++) {
+                string file = selected[e][variant]; log("转换 " + (++done) + "/" + allFiles.Length + "：" + e + " #" + (variant + 1));
+                byte[] audio = Decode(file, ffmpeg);
+                sources.Add(new { file = Path.GetFileName(file), seconds = audio.Length / 96000.0, pcm_sha256 = SHA(audio) });
+                banks.Add(BuildBank(name + "_" + e + "_" + (variant + 1), name.ToLowerInvariant(), e + "_v" + (variant + 1), audio));
+            }
+            if (sources.Count > 0) sourceInfo[e] = sources;
         }
+        byte[] runtime;
+        using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(Resource("runtime.support")))) {
+            assembly.Name.Name = name + "Runtime"; assembly.MainModule.Name = name + "Runtime.dll";
+            using (var bytes = new MemoryStream()) { assembly.Write(bytes); runtime = bytes.ToArray(); }
+        }
+        byte[] detector = CreateDetector(name, selected.ToDictionary(p => p.Key, p => p.Value.Count), runtime);
+        string yaml = "- Name: " + name + "\n  Version: " + Version + "\n  DLL: bin/" + name + ".dll\n  Dependencies:\n    - Name: Everest\n      Version: 1.2781.0\n";
+        string readme = name + " " + Version + "\r\n\r\n将 ZIP 放进 Everest 版蔚蓝的 Mods 文件夹。开启本 Mod 的 Enabled，关闭其他播报 Mod。\r\n未添加音频的项目不播报；多条音频每次等概率随机选择。带金死亡和金草莓收集分别仅触发各自的播报。\r\n";
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)); string temp = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try {
+            using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create)) {
+                Add(zip, "everest.yaml", Encoding.UTF8.GetBytes(yaml)); Add(zip, name + "Config.yaml", Encoding.UTF8.GetBytes("VoicePacks:\n  - " + name + "\n"));
+                Add(zip, "bin/" + name + ".dll", detector); Add(zip, "bin/" + name + "Runtime.dll", runtime);
+                foreach (var bank in banks) { Add(zip, "Audio/" + bank.Name + ".bank", bank.Data); Add(zip, "Audio/" + bank.Name + ".guids.txt", Encoding.UTF8.GetBytes(bank.Guids)); }
+                Add(zip, "README.txt", Encoding.UTF8.GetBytes(readme));
+                Add(zip, "build-info.json", Encoding.UTF8.GetBytes(Json.Serialize(new { name = name, version = Version, sample_rate = Rate, channels = 1, template_sha256 = TemplateHash, sources = sourceInfo, counts = selected.ToDictionary(p => p.Key, p => p.Value.Count) })));
+            }
+            if (File.Exists(outputPath)) { if (!overwrite) throw new Exception("输出文件在制作期间已被创建，请换一个输出路径。"); File.Replace(temp, outputPath, null); }
+            else File.Move(temp, outputPath);
+        } finally { if (File.Exists(temp)) File.Delete(temp); }
+        log("完成：" + outputPath); return outputPath;
+    }
+    class GeneratedBank { public string Name; public byte[] Data; public string Guids; }
+    static GeneratedBank BuildBank(string name, string publicSlug, string eventKey, byte[] clip) {
+        string slug = name.ToLowerInvariant();
+        var pcm = BankEvents.ToDictionary(e => e, e => e == "cornerboost" ? clip : new byte[960]);
         pcm["farewell"] = new byte[960];
-        log("生成音频库与配置…");
         byte[] bank = Resource("template.bank");
-        if (SHA(bank) != TemplateHash) throw new Exception("内置模板校验失败。");
+        if (SHA(bank) != TemplateHash) throw new Exception("模板校验失败，请使用原版 TechAnnouncer 1.0.1。");
         var chunks = new List<Chunk>(); Walk(bank, 12, bank.Length, chunks);
         var snd = chunks.Single(c => c.Tag == "SND "); int fsbPos = snd.Data + 20;
         if (Encoding.ASCII.GetString(bank, fsbPos, 4) != "FSB5") throw new Exception("模板音频格式不受支持。");
@@ -213,7 +276,7 @@ public static class Builder {
             string path = item.Value, newPath;
             if (path.StartsWith("event:/brokemia/tech_announcer/")) {
                 string[] parts = path.Split('/'); string originalPack = parts[parts.Length - 2], e = parts.Last();
-                newPath = "event:/brokemia/tech_announcer/" + slug + (originalPack == "jeffsteitzer" ? "" : "_internal") + "/" + e;
+                newPath = "event:/brokemia/tech_announcer/" + (originalPack == "jeffsteitzer" && e == "cornerboost" ? publicSlug + "/" + eventKey : slug + "_internal/" + originalPack + "/" + e);
                 Guid id = Unique(ns, newPath); map[item.Key] = id; export.Add("{" + id + "} " + newPath);
             } else if (path == "bank:/TechAnnouncer") {
                 newPath = "bank:/" + name; Guid id = Unique(ns, newPath); map[item.Key] = id; export.Add("{" + id + "} " + newPath);
@@ -227,23 +290,7 @@ public static class Builder {
         byte[] rebuilt = new byte[snd.Pos + 28 + fsb.Length]; Array.Copy(bank, rebuilt, snd.Pos); Encoding.ASCII.GetBytes("SND ").CopyTo(rebuilt, snd.Pos);
         Put(rebuilt, snd.Pos + 4, (uint)(20 + fsb.Length)); fsb.CopyTo(rebuilt, snd.Pos + 28); Put(rebuilt, 4, (uint)(rebuilt.Length - 8));
         var sndh = chunks.Single(c => c.Tag == "SNDH"); Put(rebuilt, sndh.Data + 8, (uint)fsb.Length);
-        string yaml = "- Name: " + name + "\n  Version: 1.1.0\n  DLL: bin/" + name + ".dll\n  Dependencies:\n    - Name: Everest\n      Version: 1.2781.0\n";
-        byte[] detector = CreateDetector(name);
-        string readme = name + " 1.1.0\r\n\r\n将本 ZIP 放进 Everest 版蔚蓝的 Mods 文件夹，无需解压。\r\n进入本 Mod 的选项，开启 Enabled，Voice Pack 默认为 " + name + "。\r\n关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报 Mod 的 Enabled，避免重复播报。\r\n本版内置技巧检测，不依赖 TechAnnouncer.zip。\r\n修复 Demo Dash 漏播：在实际冲刺开始、方向确定后识别水平下蹲冲刺，每次冲刺仅播报一次。\r\nNeutral Jump 保留原版判定，其他技巧判定未改动。\r\n包含九种技巧；未提供 farewell，额外事件保持静音。\r\n";
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)); string temp = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try {
-            using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create)) {
-                Add(zip, "everest.yaml", Encoding.UTF8.GetBytes(yaml)); Add(zip, name + "Config.yaml", Encoding.UTF8.GetBytes("VoicePacks:\n  - " + name + "\n")); Add(zip, "bin/" + name + ".dll", detector);
-                Add(zip, "Audio/" + name + ".bank", rebuilt); Add(zip, "Audio/" + name + ".guids.txt", Encoding.UTF8.GetBytes(String.Join("\n", export) + "\n"));
-                Add(zip, "README.txt", Encoding.UTF8.GetBytes(readme));
-                Add(zip, "build-info.json", Encoding.UTF8.GetBytes(Json.Serialize(new { name = name, sample_rate = Rate, channels = 1, template_sha256 = TemplateHash, bank_sha256 = SHA(rebuilt), sources = sourceInfo })));
-            }
-            if (File.Exists(outputPath)) {
-                if (!overwrite) throw new Exception("输出文件在制作期间已被创建，请换一个输出路径。");
-                File.Replace(temp, outputPath, null);
-            } else File.Move(temp, outputPath);
-        } finally { if (File.Exists(temp)) File.Delete(temp); }
-        log("完成：" + outputPath); return outputPath;
+        return new GeneratedBank { Name = name, Data = rebuilt, Guids = String.Join("\n", export) };
     }
     static void Add(ZipArchive zip, string name, byte[] bytes) { using (var s = zip.CreateEntry(name, CompressionLevel.Optimal).Open()) s.Write(bytes, 0, bytes.Length); }
     static void LongBranches(MethodDefinition m) {
@@ -255,7 +302,34 @@ public static class Builder {
             else if (i.OpCode == OpCodes.Bne_Un_S) i.OpCode = OpCodes.Bne_Un;
         }
     }
-    public static byte[] CreateDetector(string name) {
+    static void ConfigureRuntime(ModuleDefinition module, TypeDefinition type, string name, Dictionary<string, int> counts, byte[] runtime) {
+        using (var support = AssemblyDefinition.ReadAssembly(new MemoryStream(runtime))) {
+            var helper = support.MainModule.GetType("AnnouncerRuntime.Support");
+            Func<string, MethodReference> import = n => module.ImportReference(helper.Methods.Single(m => m.Name == n));
+            var audioPath = type.Methods.Single(m => m.Name == "AudioPath");
+            audioPath.Body = new Mono.Cecil.Cil.MethodBody(audioPath);
+            var ip = audioPath.Body.GetILProcessor(); ip.Emit(OpCodes.Ldarg_0); ip.Emit(OpCodes.Call, import("AudioPath")); ip.Emit(OpCodes.Ret);
+            var oldPlay = (MethodReference)type.Methods.Single(m => m.Name == "Player_WallJump").Body.Instructions.First(i => i.OpCode == OpCodes.Call && ((MethodReference)i.Operand).Name == "Play").Operand;
+            var safe = new MethodDefinition("PlayOptional", Mono.Cecil.MethodAttributes.Private | Mono.Cecil.MethodAttributes.Static, oldPlay.ReturnType);
+            safe.Parameters.Add(new ParameterDefinition("path", Mono.Cecil.ParameterAttributes.None, module.TypeSystem.String)); type.Methods.Add(safe);
+            var skip = Instruction.Create(OpCodes.Ldnull); var sp = safe.Body.GetILProcessor();
+            sp.Emit(OpCodes.Call, type.Methods.Single(m => m.Name == "get_Settings"));
+            sp.Emit(OpCodes.Callvirt, module.Types.Single(t => t.Name == "TechAnnouncerModuleSettings").Methods.Single(m => m.Name == "get_Enabled")); sp.Emit(OpCodes.Brfalse, skip);
+            sp.Emit(OpCodes.Ldarg_0); sp.Emit(OpCodes.Brfalse, skip); sp.Emit(OpCodes.Ldarg_0); sp.Emit(OpCodes.Call, oldPlay); sp.Emit(OpCodes.Ret); sp.Append(skip); sp.Emit(OpCodes.Ret);
+            foreach (var t in module.GetTypes()) foreach (var method in t.Methods.Where(m => m.HasBody && m != safe))
+                foreach (var instruction in method.Body.Instructions)
+                    if (instruction.OpCode == OpCodes.Call && instruction.Operand is MethodReference && ((MethodReference)instruction.Operand).FullName == oldPlay.FullName) instruction.Operand = safe;
+            var callback = new MethodDefinition("AnnounceEvent", Mono.Cecil.MethodAttributes.Private | Mono.Cecil.MethodAttributes.Static, module.TypeSystem.Void);
+            callback.Parameters.Add(new ParameterDefinition("key", Mono.Cecil.ParameterAttributes.None, module.TypeSystem.String)); type.Methods.Add(callback);
+            var cp = callback.Body.GetILProcessor(); cp.Emit(OpCodes.Ldarg_0); cp.Emit(OpCodes.Call, audioPath); cp.Emit(OpCodes.Call, safe); cp.Emit(OpCodes.Pop); cp.Emit(OpCodes.Ret);
+            var load = type.Methods.Single(m => m.Name == "Load"); var lp = load.Body.GetILProcessor(); var anchor = load.Body.Instructions[0];
+            var action = module.ImportReference(typeof(Action<string>).GetConstructor(new[] { typeof(object), typeof(IntPtr) }));
+            var setup = new[] { Instruction.Create(OpCodes.Ldstr, name.ToLowerInvariant()), Instruction.Create(OpCodes.Ldstr, String.Join(";", counts.Select(p => p.Key + "=" + p.Value))), Instruction.Create(OpCodes.Ldnull), Instruction.Create(OpCodes.Ldftn, callback), Instruction.Create(OpCodes.Newobj, action), Instruction.Create(OpCodes.Call, import("Configure")), Instruction.Create(OpCodes.Call, import("Load")) };
+            foreach (var instruction in setup) lp.InsertBefore(anchor, instruction);
+            var unload = type.Methods.Single(m => m.Name == "Unload"); unload.Body.GetILProcessor().InsertBefore(unload.Body.Instructions[0], Instruction.Create(OpCodes.Call, import("Unload")));
+        }
+    }
+    public static byte[] CreateDetector(string name, Dictionary<string, int> counts, byte[] runtime) {
         using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(Resource("template.detector")))) {
             var module = assembly.MainModule; var type = module.Types.Single(t => t.Name == "TechAnnouncerModule");
             Func<string, MethodDefinition> method = n => type.Methods.Single(m => m.Name == n);
@@ -289,10 +363,11 @@ public static class Builder {
                     string s = (string)i.Operand; if (s == "JeffSteitzer" || s == "TechAnnouncer") i.Operand = name; else if (s == "TechAnnouncerConfig") i.Operand = name + "Config";
                 }
             }
+            ConfigureRuntime(module, type, name, counts, runtime);
             string ns = "Celeste.Mod.GeneratedAnnouncer." + name.Replace('-', '_');
             foreach (var t in module.GetTypeReferences()) if (t.Namespace == "Celeste.Mod.TechAnnouncer") t.Namespace = ns;
             foreach (var t in module.GetTypes()) if (t.Namespace == "Celeste.Mod.TechAnnouncer") t.Namespace = ns;
-            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 1, 0, 0); module.Name = name + ".dll"; module.Mvid = Unique(new Guid("6ecb33b7-2c51-466a-bf8e-42d0938f2347"), name.ToLowerInvariant());
+            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 2, 0, 0); module.Name = name + ".dll"; module.Mvid = Unique(new Guid("6ecb33b7-2c51-466a-bf8e-42d0938f2347"), name.ToLowerInvariant());
             using (var output = new MemoryStream()) { assembly.Write(output); return output.ToArray(); }
         }
     }
@@ -300,7 +375,8 @@ public static class Builder {
 
 public class MainWindow : Form {
     TextBox packName = new TextBox(), ffmpeg = new TextBox();
-    TextBox[] inputs = new TextBox[9]; Button build = new Button(), folder = new Button(), ffmpegBrowse = new Button(), openOutput = new Button();
+    TextBox[] inputs = new TextBox[Builder.Events.Length];
+    List<string>[] clips = Builder.Events.Select(e => new List<string>()).ToArray(); Button build = new Button(), folder = new Button(), ffmpegBrowse = new Button(), openOutput = new Button();
     List<Button> inputButtons = new List<Button>(); RichTextBox log = new RichTextBox(); string result;
     public MainWindow() {
         Text = "Announcer Mod 生成器"; Font = new Font("Microsoft YaHei UI", 10F); BackColor = Color.FromArgb(247, 249, 252);
@@ -309,26 +385,27 @@ public class MainWindow : Form {
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 82)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 342)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); Controls.Add(layout);
         var heading = new Panel { Dock = DockStyle.Fill };
-        heading.Controls.Add(new Label { Text = "九条语音，生成你的技巧播报 Mod", Font = new Font(Font.FontFamily, 18F, FontStyle.Bold), ForeColor = Color.FromArgb(25, 42, 72), AutoSize = true, Location = new Point(0, 0) });
-        heading.Controls.Add(new Label { Text = "选择音频 → 填写语音包名字 → 生成 ZIP。支持 MP3、WAV、OGG、FLAC 等格式。", AutoSize = true, ForeColor = Color.FromArgb(86, 102, 125), Location = new Point(0, 43) }); layout.Controls.Add(heading, 0, 0);
+        heading.Controls.Add(new Label { Text = "自选语音，生成你的播报 Mod", Font = new Font(Font.FontFamily, 18F, FontStyle.Bold), ForeColor = Color.FromArgb(25, 42, 72), AutoSize = true, Location = new Point(0, 0) });
+        heading.Controls.Add(new Label { Text = "所有项目可留空；每项最多 5 条，触发时随机播放。支持 MP3、WAV 等格式。", AutoSize = true, ForeColor = Color.FromArgb(86, 102, 125), Location = new Point(0, 43) }); layout.Controls.Add(heading, 0, 0);
         var naming = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3 }; naming.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120)); naming.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); naming.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 255));
         naming.Controls.Add(new Label { Text = "语音包名字", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
         packName.Text = "RosmontisAnnouncer"; packName.Dock = DockStyle.Fill; packName.Margin = new Padding(0, 9, 15, 8); naming.Controls.Add(packName, 1, 0);
         naming.Controls.Add(new Label { Text = "3–64 位英文 / 数字 / _ / -", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(86, 102, 125) }, 2, 0); layout.Controls.Add(naming, 0, 1);
         var imports = new FlowLayoutPanel { Dock = DockStyle.Fill };
         folder.Text = "选择音频文件夹"; folder.Size = new Size(160, 34); folder.Click += (s, e) => ImportFolder(); imports.Controls.Add(folder);
-        imports.Controls.Add(new Label { Text = "按技巧名称自动匹配；文件名不同也可以逐条选择。", AutoSize = true, Padding = new Padding(10, 8, 0, 0), ForeColor = Color.FromArgb(86, 102, 125) }); layout.Controls.Add(imports, 0, 2);
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 9, BackColor = Color.White, Padding = new Padding(8, 2, 8, 2) };
+        imports.Controls.Add(new Label { Text = "共 13 项，可向下滚动；支持 death_1 等编号文件名。", AutoSize = true, Padding = new Padding(10, 8, 0, 0), ForeColor = Color.FromArgb(86, 102, 125) }); layout.Controls.Add(imports, 0, 2);
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = Builder.Events.Length, BackColor = Color.White, Padding = new Padding(8, 2, 8, 2) };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
-        for (int i = 0; i < 9; i++) {
-            int index = i; grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / 9));
-            grid.Controls.Add(new Label { Text = Builder.Events[i] + " · " + Builder.Labels[i], Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = new Font(Font.FontFamily, 9F) }, 0, i);
-            inputs[i] = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 10, 3), AllowDrop = true };
+        for (int i = 0; i < Builder.Events.Length; i++) {
+            int index = i; grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            grid.Controls.Add(new Label { Text = Builder.Labels[i], Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = new Font(Font.FontFamily, 9F) }, 0, i);
+            inputs[i] = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 10, 3), AllowDrop = true, ReadOnly = true };
             inputs[i].DragEnter += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy; };
-            inputs[i].DragDrop += (s, e) => { string[] p = (string[])e.Data.GetData(DataFormats.FileDrop); if (p.Length == 1 && File.Exists(p[0])) inputs[index].Text = p[0]; };
-            grid.Controls.Add(inputs[i], 1, i); var button = new Button { Text = "选择…", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3) }; button.Click += (s, e) => SelectAudio(index); inputButtons.Add(button); grid.Controls.Add(button, 2, i);
+            inputs[i].DragDrop += (s, e) => { string[] p = (string[])e.Data.GetData(DataFormats.FileDrop); SetClips(index, p); };
+            grid.Controls.Add(inputs[i], 1, i); var button = new Button { Text = "管理…", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3) }; button.Click += (s, e) => SelectAudio(index); inputButtons.Add(button); grid.Controls.Add(button, 2, i);
         }
-        layout.Controls.Add(grid, 0, 3);
+        grid.Dock = DockStyle.Top; grid.Height = Builder.Events.Length * 42 + 8;
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true }; scroll.Controls.Add(grid); layout.Controls.Add(scroll, 0, 3);
         var conversion = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3 }; conversion.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200)); conversion.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); conversion.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
         conversion.Controls.Add(new Label { Text = "音频转换工具（自动查找）", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = new Font(Font.FontFamily, 9F) }, 0, 0);
         ffmpeg.Dock = DockStyle.Fill; ffmpeg.Text = Builder.FindFFmpeg(); ffmpeg.Margin = new Padding(0, 6, 10, 3); conversion.Controls.Add(ffmpeg, 1, 0);
@@ -337,20 +414,35 @@ public class MainWindow : Form {
         build.Text = "生成 Mod ZIP"; build.Size = new Size(180, 40); build.BackColor = Color.FromArgb(38, 97, 196); build.ForeColor = Color.White; build.FlatStyle = FlatStyle.Flat; build.FlatAppearance.BorderSize = 0; build.Click += async (s, e) => await Generate(); actions.Controls.Add(build);
         openOutput.Text = "打开输出文件夹"; openOutput.Size = new Size(150, 40); openOutput.Enabled = false; openOutput.Click += (s, e) => { if (File.Exists(result)) Process.Start("explorer.exe", "/select,\"" + result + "\""); }; actions.Controls.Add(openOutput);
         actions.Controls.Add(new Label { Text = "成品直接放进 Mods，关闭其他技巧播报。", AutoSize = true, Padding = new Padding(12, 10, 0, 0), ForeColor = Color.FromArgb(86, 102, 125) }); layout.Controls.Add(actions, 0, 5);
-        log.Dock = DockStyle.Fill; log.ReadOnly = true; log.BorderStyle = BorderStyle.FixedSingle; log.BackColor = Color.White; log.Font = new Font(Font.FontFamily, 9F); log.Text = "准备就绪。每条音频支持 0.01–30 秒；生成过程会保留原始素材。"; layout.Controls.Add(log, 0, 6);
+        log.Dock = DockStyle.Fill; log.ReadOnly = true; log.BorderStyle = BorderStyle.FixedSingle; log.BackColor = Color.White; log.Font = new Font(Font.FontFamily, 9F); log.Text = "准备就绪。未添加的项目不播报；每项最多五条，每条支持 0.01–30 秒。"; layout.Controls.Add(log, 0, 6);
         try { string candidate = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..")); Fill(Builder.ReadFolder(candidate)); } catch (Exception) { }
         FormClosing += (s, e) => { if (!build.Enabled) { e.Cancel = true; MessageBox.Show("正在生成，请等待完成后关闭。", Text); } };
     }
-    void Fill(Dictionary<string, string> files) { for (int i = 0; i < 9; i++) inputs[i].Text = files.ContainsKey(Builder.Events[i]) ? files[Builder.Events[i]] : ""; }
+    void SetClips(int i, IEnumerable<string> files) {
+        var list = files.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (list.Count > 5) { MessageBox.Show("每项最多五条音频。", Text); return; }
+        clips[i] = list; inputs[i].Text = list.Count == 0 ? "未添加 · 不播报" : list.Count + " 条 · " + String.Join("；", list.Select(Path.GetFileName));
+    }
+    void Fill(Dictionary<string, List<string>> files) { for (int i = 0; i < Builder.Events.Length; i++) SetClips(i, files.ContainsKey(Builder.Events[i]) ? files[Builder.Events[i]] : new List<string>()); }
     void ImportFolder() {
-        using (var d = new FolderBrowserDialog { Description = "选择包含九条技巧音频的文件夹" }) if (d.ShowDialog() == DialogResult.OK) {
-            try { var files = Builder.ReadFolder(d.SelectedPath); Fill(files); MessageBox.Show("已匹配 " + files.Count + "/9 条。未匹配的技巧请逐条选择音频。", Text); } catch (Exception ex) { MessageBox.Show(ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        using (var d = new FolderBrowserDialog { Description = "选择音频文件夹；未提供的项目保持静音" }) if (d.ShowDialog() == DialogResult.OK) {
+            try { var files = Builder.ReadFolder(d.SelectedPath); Fill(files); MessageBox.Show("已匹配 " + files.Count + "/" + Builder.Events.Length + " 项，共 " + files.Values.Sum(v => v.Count) + " 条音频。", Text); } catch (Exception ex) { MessageBox.Show(ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
     }
-    void SelectAudio(int i) { using (var d = new OpenFileDialog { Title = "选择 " + Builder.Events[i] + " 的语音", Filter = "音频文件|*.mp3;*.wav;*.ogg;*.flac;*.m4a;*.aac;*.wma;*.opus;*.aiff;*.aif|所有文件|*.*" }) if (d.ShowDialog() == DialogResult.OK) inputs[i].Text = d.FileName; }
+    void SelectAudio(int i) {
+        using (var dialog = new Form { Text = Builder.Labels[i] + " · 最多五条音频", ClientSize = new Size(640, 280), StartPosition = FormStartPosition.CenterParent, Font = Font, MinimizeBox = false, MaximizeBox = false, FormBorderStyle = FormBorderStyle.FixedDialog }) {
+            var list = new ListBox { Location = new Point(12, 12), Size = new Size(616, 210), HorizontalScrollbar = true, SelectionMode = SelectionMode.MultiExtended }; list.Items.AddRange(clips[i].ToArray()); dialog.Controls.Add(list);
+            var add = new Button { Text = "添加音频…", Location = new Point(12, 235), Size = new Size(120, 32) };
+            add.Click += (sender, e) => { using (var file = new OpenFileDialog { Multiselect = true, Filter = "音频文件|*.mp3;*.wav;*.ogg;*.flac;*.m4a;*.aac;*.wma;*.opus;*.aiff;*.aif", Title = "一次可选择多条音频" }) if (file.ShowDialog(dialog) == DialogResult.OK) { var items = list.Items.Cast<string>().Concat(file.FileNames).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(); if (items.Length > 5) MessageBox.Show("每项最多五条，请先移除不需要的音频。", dialog.Text); else { list.Items.Clear(); list.Items.AddRange(items); } } }; dialog.Controls.Add(add);
+            var remove = new Button { Text = "移除选中", Location = new Point(140, 235), Size = new Size(100, 32) }; remove.Click += (sender,e) => { foreach (var item in list.SelectedItems.Cast<object>().ToArray()) list.Items.Remove(item); }; dialog.Controls.Add(remove);
+            var clear = new Button { Text = "清空", Location = new Point(248, 235), Size = new Size(80, 32) }; clear.Click += (sender,e) => list.Items.Clear(); dialog.Controls.Add(clear);
+            var ok = new Button { Text = "确定", Location = new Point(528, 235), Size = new Size(100, 32), DialogResult = DialogResult.OK }; dialog.Controls.Add(ok); dialog.AcceptButton = ok;
+            if (dialog.ShowDialog(this) == DialogResult.OK) SetClips(i, list.Items.Cast<string>());
+        }
+    }
     void Busy(bool busy) { build.Enabled = !busy; folder.Enabled = !busy; packName.Enabled = !busy; ffmpeg.Enabled = !busy; ffmpegBrowse.Enabled = !busy; foreach (var t in inputs) t.Enabled = !busy; foreach (var b in inputButtons) b.Enabled = !busy; openOutput.Enabled = !busy && File.Exists(result); }
     async Task Generate() {
-        var files = new Dictionary<string, string>(); for (int i = 0; i < 9; i++) files[Builder.Events[i]] = inputs[i].Text.Trim().Trim('"');
+        var files = new Dictionary<string, List<string>>(); for (int i = 0; i < Builder.Events.Length; i++) files[Builder.Events[i]] = new List<string>(clips[i]);
         string name = packName.Text.Trim(), converter = ffmpeg.Text.Trim().Trim('"');
         using (var d = new SaveFileDialog { Filter = "Mod ZIP|*.zip", FileName = name + ".zip", InitialDirectory = AppDomain.CurrentDomain.BaseDirectory, OverwritePrompt = true, AddExtension = true }) {
             if (d.ShowDialog() != DialogResult.OK) return;
@@ -373,9 +465,9 @@ static class Program {
                 Console.SetError(new StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false)) { AutoFlush = true });
                 var a = new Dictionary<string, string>(); bool overwrite = false;
                 for (int i = 0; i < args.Length; i++) { if (args[i] == "--overwrite") overwrite = true; else { if (!args[i].StartsWith("--") || i + 1 >= args.Length) throw new Exception("参数格式错误。"); a[args[i]] = args[++i]; } }
-                if (!a.ContainsKey("--name") || !a.ContainsKey("--output") || (!a.ContainsKey("--input-dir") && !a.ContainsKey("--inputs"))) throw new Exception("用法：AnnouncerMod生成器.exe --name MyAnnouncer --input-dir 音频文件夹 --output MyAnnouncer.zip [--ffmpeg 路径] [--overwrite]\n也可用 --inputs 映射.json 逐条指定九个文件。");
-                Dictionary<string, string> files;
-                if (a.ContainsKey("--inputs")) { string manifest = Path.GetFullPath(a["--inputs"]); files = new JavaScriptSerializer().Deserialize<Dictionary<string, string>>(File.ReadAllText(manifest, Encoding.UTF8)); foreach (string key in files.Keys.ToArray()) files[key] = Path.GetFullPath(Path.IsPathRooted(files[key]) ? files[key] : Path.Combine(Path.GetDirectoryName(manifest), files[key])); }
+                if (!a.ContainsKey("--name") || !a.ContainsKey("--output") || (!a.ContainsKey("--input-dir") && !a.ContainsKey("--inputs"))) throw new Exception("用法：AnnouncerMod生成器.exe --name MyAnnouncer --input-dir 音频文件夹 --output MyAnnouncer.zip [--ffmpeg 路径] [--overwrite]\n也可用 --inputs 映射.json 指定可选文件或每项最多五条的路径数组。");
+                Dictionary<string, List<string>> files;
+                if (a.ContainsKey("--inputs")) files = Builder.ReadInputs(a["--inputs"]);
                 else files = Builder.ReadFolder(a["--input-dir"]);
                 Builder.Generate(a["--name"], files, a["--output"], a.ContainsKey("--ffmpeg") ? a["--ffmpeg"] : Builder.FindFFmpeg(), overwrite, Console.WriteLine); return 0;
             } catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }

@@ -38,7 +38,16 @@ if (-not (Test-Path -LiteralPath $taskCompiler)) { $taskCompiler = Join-Path $en
 if (-not (Test-Path -LiteralPath $taskCompiler)) { throw 'Windows .NET Framework compiler not found.' }
 Push-Location $taskRoot
 try {
-    & $taskCompiler /nologo /target:winexe /platform:anycpu /optimize+ '/out:dist\AnnouncerMod生成器.exe' /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Web.Extensions.dll '/reference:dist\Mono.Cecil.dll' 'src\AnnouncerBuilder.cs'
+    # Compile only original API declarations; no game files are bundled or needed.
+    & $taskCompiler /nologo /target:library /out:dependencies\FNA.dll tests\stubs\FNA.cs
+    if ($LASTEXITCODE -ne 0) { throw 'API declaration compilation failed.' }
+    & $taskCompiler /nologo /target:library /out:dependencies\Celeste.dll tests\stubs\Celeste.cs
+    if ($LASTEXITCODE -ne 0) { throw 'API declaration compilation failed.' }
+    & $taskCompiler /nologo /target:library /out:dependencies\MMHOOK_Celeste.dll /reference:dependencies\Celeste.dll /reference:dependencies\FNA.dll tests\stubs\MMHOOK_Celeste.cs
+    if ($LASTEXITCODE -ne 0) { throw 'Hook declaration compilation failed.' }
+    & $taskCompiler /nologo /target:library /optimize+ /out:dependencies\AnnouncerRuntime.dll /reference:dependencies\Celeste.dll /reference:dependencies\FNA.dll /reference:dependencies\MMHOOK_Celeste.dll src\RuntimeSupport.cs
+    if ($LASTEXITCODE -ne 0) { throw 'Runtime compilation failed.' }
+    & $taskCompiler /nologo /target:winexe /platform:anycpu /optimize+ '/out:dist\AnnouncerMod生成器.exe' /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Web.Extensions.dll '/reference:dist\Mono.Cecil.dll' /resource:dependencies\AnnouncerRuntime.dll,runtime.support 'src\AnnouncerBuilder.cs'
     if ($LASTEXITCODE -ne 0) { throw 'Compilation failed.' }
 } finally { Pop-Location }
 if ($TemplateZip) {

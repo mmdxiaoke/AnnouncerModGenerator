@@ -7,5 +7,9 @@
   "superdash": "audio/superdash.mp3",
   "ultradash": "audio/UltraDash.mp3",
   "wallbounce": "audio/WallBounce.mp3",
-  "wavedash": "audio/wavedash.mp3"
+  "wavedash": "audio/wavedash.mp3",
+  "death": ["audio/death_1.mp3", "audio/death_2.mp3"],
+  "goldendeath": [],
+  "strawberry": "audio/strawberry.mp3",
+  "goldenstrawberry": null
 }
