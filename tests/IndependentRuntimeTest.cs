@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using System.Reflection;
 using System.Collections.Generic;
@@ -16,6 +17,12 @@ class IndependentRuntimeTest {
  static Player New() { return new Player(); }
  static void Dash(Player p, Vector2 direction, bool ground) { p.DashDir=direction; p.lastAim=direction; p.dashStartedOnGround=ground; p.calledDashEvents=false; On.Celeste.Player.TestCallDashEvents(delegate(Player x) { x.calledDashEvents=true; },p); }
  static void Jump(Player p) { On.Celeste.Player.TestSuperJump(delegate(Player x) { x.Ducking=false; },p); }
+ static IEnumerator GroundDash(Player p) {
+  yield return "freeze";
+  p.Speed=new Vector2(300,170); Dash(p,new Vector2(.707f,.707f),true);
+  p.Speed=new Vector2(360,0); p.DashDir=new Vector2(1,0); p.Ducking=true;
+  yield return "after-boost";
+ }
  static PlayerDeadBody Kill(Player p) { return On.Celeste.Player.TestDie(delegate(Player x,Vector2 d,bool a,bool b) { x.Leader.Followers.Clear(); x.Dead=true; return new PlayerDeadBody(); },p,new Vector2(),false,true); }
  static void Setting(string key, object value) { settings.GetType().GetProperty(key).SetValue(settings,value,null); }
  public static void Main(string[] args) {
@@ -25,6 +32,10 @@ class IndependentRuntimeTest {
   }
   module=(EverestModule)Activator.CreateInstance(assembly.GetType("Celeste.Mod.IndependentAnnouncer.AnnouncerModule"));
   settings=Activator.CreateInstance(module.SettingsType); module._Settings=(EverestModuleSettings)settings;
+  Assert((int)settings.GetType().GetProperty("UltraVolume").GetValue(settings,null)==40,"embedded ultra volume");
+  Assert((int)settings.GetType().GetProperty("FastBubbleVolume").GetValue(settings,null)==60,"embedded bubble volume");
+  Assert((int)settings.GetType().GetProperty("DeathVolume").GetValue(settings,null)==70,"embedded death volume");
+  foreach(var property in settings.GetType().GetProperties()) if(property.Name.EndsWith("Volume") && property.Name!="Volume") property.SetValue(settings,100,null);
   Audio.System=new FMOD.Studio.System(); core=Audio.System.Core; module.Load(); module.Load(); Assert(On.Celeste.Player.TestSubscribers==1,"double load");
   Player p=New(); p.Ducking=true; p.demoDashed=true;
   Expect("demodash",delegate { Dash(p,new Vector2(1,0),true); });
@@ -47,9 +58,32 @@ class IndependentRuntimeTest {
   p.DashDir=new Vector2(.707f,.707f);p.Speed=new Vector2(360,170); Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(432,0); },p,new CollisionData()); });
   p=New();p.StateMachine.State=2;Dash(p,new Vector2(.707f,.707f),false);p.Speed=new Vector2(169.7f,170);
   Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(203.64f,0); },p,new CollisionData()); });
-  p=New();p.StateMachine.State=4; Expect("fastbubble",delegate { Assert(On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return 2; },p)==2,"return state"); });
-  p.boostRed=true; Silent(delegate { On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return 2; },p); });
-  p.boostRed=false; Silent(delegate { On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return 4; },p); });
+  // Regression: Ultra landing after the dash state has ended, both directions.
+  foreach(int direction in new[] { -1,1 }) {
+   p=New();p.StateMachine.State=0;Dash(p,new Vector2(direction*.707f,.707f),false);p.Speed=new Vector2(direction*300,170);
+   Expect("ultradash",delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(direction*360,0); x.DashDir=new Vector2(direction,0); },p,new CollisionData()); });
+  }
+  // Regression: ground-start coroutine applies the boost without a collision callback.
+  p=New();p.StateMachine.State=2; int coroutineCalls=0;
+  IEnumerator dashRoutine=On.Celeste.Player.TestDashCoroutine(delegate(Player x) { coroutineCalls++; return GroundDash(x); },p);
+  Silent(delegate { Assert(dashRoutine.MoveNext() && (string)dashRoutine.Current=="freeze","original first yield"); });
+  Expect("ultradash",delegate { Assert(dashRoutine.MoveNext() && (string)dashRoutine.Current=="after-boost","original second yield"); });
+  Silent(delegate { Assert(!dashRoutine.MoveNext(),"original end"); });Assert(coroutineCalls==1,"original coroutine once");
+  // Only original game boost results count; upward collision/rebound must stay silent.
+  p=New();p.StateMachine.State=0;Dash(p,new Vector2(.707f,.707f),false);p.Speed=new Vector2(300,170);
+  Silent(delegate { On.Celeste.Player.TestOnCollideV(delegate(Player x,CollisionData d) { x.Speed=new Vector2(360,-100); },p,new CollisionData()); });
+  // Manual exits for green and red, with one announcement per bubble entry.
+  foreach(int next in new[] { 2,5 }) {
+   p=New();p.StateMachine.State=4;p.boostRed=next==5;
+   On.Celeste.Player.TestBoostBegin(delegate(Player x) { calls++; },p);
+   Expect("fastbubble",delegate { Assert(On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return next; },p)==next,"bubble result preserved"); });
+   Silent(delegate { On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return next; },p); });
+   On.Celeste.Player.TestBoostBegin(delegate(Player x) { },p);
+   Expect("fastbubble",delegate { On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return next; },p); });
+  }
+  p=New();p.StateMachine.State=4;On.Celeste.Player.TestBoostBegin(delegate(Player x) { },p);
+  Silent(delegate { On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return 4; },p); });
+  p.StateMachine.State=0; Silent(delegate { On.Celeste.Player.TestBoostUpdate(delegate(Player x) { return 5; },p); });
   p=New();Expect("death",delegate { Assert(Kill(p)!=null,"body returned"); }); Silent(delegate { Kill(p); });
   p=New();Silent(delegate { On.Celeste.Player.TestDie(delegate(Player x,Vector2 d,bool a,bool b) { return null; },p,new Vector2(),false,true); });
   p=New();p.Leader.Followers.Add(new Follower { Entity=new Strawberry { Golden=true } }); Expect("goldendeath",delegate { Kill(p); });
@@ -61,6 +95,23 @@ class IndependentRuntimeTest {
   Assert(seen.Count==5,"all five variants"); foreach(int n in seen.Values) Assert(n>270 && n<530,"random distribution");
   Assert(core.Sounds.Count<=65,"sound cache bounded"); int active=0;foreach(var c in core.Channels) if(c.Playing) active++;Assert(active<=8,"overlap cap");
   Setting("Volume",3);On.Celeste.Player.TestUpdate(delegate(Player x) { calls++; },New());foreach(var c in core.Channels) if(c.Playing) Assert(Math.Abs(c.Volume-.3f)<.001f,"live volume");
+  // All thirteen independent volume controls, live changes and master multiplication.
+  string[] keys={"cornerboost","demodash","fastbubble","hyperdash","neutral","superdash","ultradash","wallbounce","wavedash","death","goldendeath","strawberry","goldenstrawberry"};
+  string[] properties={"CornerBoostVolume","DemoDashVolume","FastBubbleVolume","HyperVolume","NeutralJumpVolume","SuperVolume","UltraVolume","WallBounceVolume","WavedashVolume","DeathVolume","GoldenDeathVolume","StrawberryVolume","GoldenStrawberryVolume"};
+  MethodInfo announce=module.GetType().GetMethod("Announce",BindingFlags.NonPublic|BindingFlags.Instance);
+  Setting("Volume",10);
+  for(int i=0;i<keys.Length;i++) {
+   string key=keys[i];Setting(properties[i],25);Expect(key,delegate { announce.Invoke(module,new object[] { key }); });
+   Assert(Math.Abs(core.Channels[core.Channels.Count-1].Volume-.25f)<.001f,"per-event initial gain "+key);
+   Setting(properties[i],50);On.Celeste.Player.TestUpdate(delegate(Player x) { },New());
+   Assert(Math.Abs(core.Channels[core.Channels.Count-1].Volume-.5f)<.001f,"per-event live gain "+key);Setting(properties[i],100);
+  }
+  Setting("Volume",5);Setting("DeathVolume",40);Expect("death",delegate { Kill(New()); });
+  Assert(Math.Abs(core.Channels[core.Channels.Count-1].Volume-.2f)<.001f,"master times event");
+  Setting("DeathVolume",0);Silent(delegate { Kill(New()); });On.Celeste.Player.TestUpdate(delegate(Player x) { },New());
+  foreach(var c in core.Channels) if(labels[Signature(c.Sound.Bytes)].StartsWith("death.v")) Assert(!c.Playing,"mute only death");
+  Expect("superdash",delegate { Jump(New()); });Assert(core.Channels[core.Channels.Count-1].Playing,"other event unaffected");
+  Setting("DeathVolume",100);Setting("Volume",10);
   Assert(core.Channels[0].Group==Audio.System.Bus.Group,"gameplay bus"); Assert(Audio.System.Bus.Locks==1,"bus lock once");
   Setting("Enabled",false);Silent(delegate { Kill(New()); });On.Celeste.Player.TestUpdate(delegate(Player x) { },New());foreach(var c in core.Channels) Assert(!c.Playing,"disabled stops audio");
   Setting("Enabled",true); Setting("Volume",0);Silent(delegate { Kill(New()); });Setting("Volume",10);

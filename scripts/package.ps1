@@ -1,7 +1,7 @@
 ﻿param([string]$OutputPath)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
-if (-not $OutputPath) { $OutputPath = Join-Path $taskRoot 'dist\AnnouncerModGenerator-v1.3.0.zip' }
+if (-not $OutputPath) { $OutputPath = Join-Path $taskRoot 'dist\AnnouncerModGenerator-v1.4.0.zip' }
 $taskOutputFull = [IO.Path]::GetFullPath($OutputPath)
 if (Test-Path -LiteralPath $taskOutputFull) { throw 'Output already exists; choose a new path.' }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -13,6 +13,7 @@ $taskFiles = @{
     'AnnouncerModGenerator/LICENSE' = 'LICENSE'
     'AnnouncerModGenerator/THIRD-PARTY-NOTICES.txt' = 'THIRD-PARTY-NOTICES.txt'
     'AnnouncerModGenerator/examples/inputs.json' = 'examples/inputs.json'
+    'AnnouncerModGenerator/examples/volumes.json' = 'examples/volumes.json'
 }
 foreach ($taskFile in $taskFiles.Values) { if (-not (Test-Path -LiteralPath (Join-Path $taskRoot $taskFile))) { throw "Missing: $taskFile; run scripts/build.ps1 first." } }
 $taskArchive = [IO.Compression.ZipFile]::Open($taskOutputFull, [IO.Compression.ZipArchiveMode]::Create)

@@ -1,6 +1,6 @@
 # Announcer Mod Generator
 
-Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独立播报 Mod。13 个项目全部可选，每项支持 0–5 条音频。
+Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独立播报 Mod。13 个项目全部可选，每项支持 0–5 条音频和独立音量。
 
 支持九种技巧，以及普通死亡、带金草莓死亡、吃掉草莓和吃掉金草莓。未添加音频的项目不播报；添加多条时，每次触发等概率随机播放其中一条，允许连续抽到同一条。
 
@@ -8,10 +8,10 @@ Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独
 
 ## 使用
 
-1. 从本仓库的 Releases 下载 **v1.3.0 或更新版本**的工具 ZIP 并解压。
+1. 从本仓库的 Releases 下载 **v1.4.0 或更新版本**的工具 ZIP 并解压。
 2. 从 [FFmpeg 官方下载页](https://ffmpeg.org/download.html) 选择 Windows 构建，将解压后的 `ffmpeg.exe` 放在程序旁边，也可以在界面中指定路径。
-3. 双击 `AnnouncerMod生成器.exe`，点击所需项目旁的“管理…”，添加、移除或清空音频。列表可向下滚动查看死亡和草莓项目。填写语音包名字，点击“生成 Mod ZIP”。
-4. 将生成的 ZIP 放入蔚蓝 `Mods` 文件夹。在 Mod 选项中开启你填写的名字对应的 **Enabled**，可用 **Volume（0–10）** 调节播报音量；关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报的 Enabled，避免重复播报。
+3. 双击 `AnnouncerMod生成器.exe`，点击所需项目旁的“管理…”，添加、移除或清空音频。列表可向下滚动查看死亡和草莓项目。每行音量可设置为 0–100%（默认 100%，0 表示静音）。填写语音包名字，点击“生成 Mod ZIP”。
+4. 将生成的 ZIP 放入蔚蓝 `Mods` 文件夹。在 Mod 选项中开启你填写的名字对应的 **Enabled**，可用 **Volume（0–10）** 调节总音量，也可分别设置每种播报的 **…Volume（0–100）**；关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报的 Enabled，避免重复播报。
 
 **v1.3.0 起完全不需要模板。** 保留程序旁边的 `Mono.Cecil.dll`。FFmpeg 只用于生成时转换音频，由用户自行安装，下载包不包含其二进制。
 
@@ -39,6 +39,14 @@ Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独
 
 带金草莓死亡仅触发 `goldendeath`，不会额外触发普通死亡；金草莓收集仅触发 `goldenstrawberry`。对应项目留空时保持静音，不回退到普通事件。收集指草莓被正式吃掉，不是刚碰到并开始跟随；同一草莓不会重复播报。无敌状态下未实际死亡也不会播报。支持原版 `Strawberry` 及其子类，另有自定义收集机制的模组草莓不保证适用。
 
+## v1.4.0：漏播修复与独立音量
+
+修复红泡泡提前冲刺的 Fast Bubble 漏播，绿泡泡仍支持；每次进入泡泡最多播报一次。Ultra 同时检查落地碰撞与冲刺启动时的地面加速，不再要求落地时仍处于冲刺状态。普通低速斜下冲刺落地仍不会误报 Ultra。
+
+生成器每行新增音量框，0–100%，默认 100%。生成的模组在 Mod 选项中有相应的独立音量，例如 `UltraVolume`、`FastBubbleVolume`、`DeathVolume`；设为 0 只关闭该项。游戏中的修改会应用到正在播放的声音，并由 Everest 保存。总音量与项目音量相乘，例如总音量 5/10、死亡音量 40/100，最终是 20%，再叠加游戏音效音量。
+
+生成器填写的音量作为新模组的初始值；游戏中已有的同名模组设置会优先保留。重新生成后若某项音量不是刚填写的值，可直接在游戏 Mod 选项中修改该项。
+
 ## v1.3.0：无需模板
 
 生成器内置本项目自行编写的播报运行程序，将音频转换为 PCM WAV，嵌入一个模块 DLL，和 Everest 清单一起打包。运行时监听冲刺、跳跃、碰撞、死亡和草莓收集，使用游戏已有的 FMOD Core 直接播放 WAV。生成过程不读取 TechAnnouncer，不修改第三方 DLL，不制作 `.bank` 或 `.guids.txt`。
@@ -57,7 +65,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 
 脚本从 NuGet 官方源下载固定版本的 Mono.Cecil，并检查包的 SHA-256，输出到 `dist`。离线编译可通过 `-CecilPath` 指定已有的 Mono.Cecil 0.10.4 DLL。独立运行程序使用本项目编写的最小 API 声明编译，无需游戏文件；这些声明只是构建/测试辅助，不会放入下载包或生成的 Mod。
 
-`scripts/package.ps1` 将程序、Mono.Cecil、使用说明及许可打包为 v1.3.0 下载包。脚本按文件清单打包，即使本地 `dist` 存在模板、FFmpeg、游戏 DLL 或用户音频，也不会包含它们。
+`scripts/package.ps1` 将程序、Mono.Cecil、使用说明及许可打包为 v1.4.0 下载包。脚本按文件清单打包，即使本地 `dist` 存在模板、FFmpeg、游戏 DLL 或用户音频，也不会包含它们。
 
 ## 命令行
 
@@ -78,9 +86,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 }
 ```
 
+命令行可加 `--volumes 音量.json` 指定各项初始音量，未填写的项目为 100。使用 0–100 的整数；音量映射与音频映射分开。例如 [examples/volumes.json](examples/volumes.json)：
+
+```json
+{ "ultradash": 50, "fastbubble": 75, "death": 30 }
+```
+
+```powershell
+& '.\dist\AnnouncerMod生成器.exe' --name MyAnnouncer --inputs '.\examples\inputs.json' --volumes '.\examples\volumes.json' --output 'D:\输出\MyAnnouncer.zip'
+```
+
 ## 验证
 
-v1.3.0 已检查独立运行程序的全部 13 类事件、Demo Dash 重复回调、定向蹬墙跳、金草莓分类、收集去重、五条随机语音、禁用/音量设置、八条并发上限、缓存和卸载。检查生成程序引用的游戏接口，并用蔚蓝自带的 FMOD 1.10.20 将全部 65 个音频位置逐一播放到游戏音效总线，包括六秒长音频，比较完整波形。报告见 [v1.3.0 验证记录](docs/independent-validation.json)。
+v1.4.0 新增红/绿泡泡、冲刺结束后 Ultra 落地、地面启动 Ultra、协程原始返回值与重复触发保护的回归检查，以及全部 13 项音量的初始值、即时修改、单项静音和总音量叠加。完成 4,000 多项运行检查和 88 个游戏 API 成员核对，全部 65 条 WAV 再次通过实际 FMOD 播放验证。报告见 [v1.4.0 验证记录](docs/v1.4-validation.json)。
+
+v1.3.0 曾检查独立运行程序的全部 13 类事件、Demo Dash 重复回调、定向蹬墙跳、金草莓分类、收集去重、五条随机语音、禁用/音量设置、八条并发上限、缓存和卸载。检查生成程序引用的游戏接口，并用蔚蓝自带的 FMOD 1.10.20 将全部 65 个音频位置逐一播放到游戏音效总线，包括六秒长音频，比较完整波形。报告见 [v1.3.0 验证记录](docs/independent-validation.json)。
 
 这些检查没有进行游戏内实际操作。技巧判定仍需要在游戏中复测，尤其抓角、Ultra、变体和其他修改玩家行为的模组。
 

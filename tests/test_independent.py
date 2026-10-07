@@ -54,12 +54,15 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
         assert (result.returncode == 0) == success, (name,result.stdout,result.stderr)
         return output
     # No template beside generator, no bank, no bank metadata, one DLL only.
-    full = generate('FullIndependent',mapping)
+    volume_file=target/'volumes.json';volume_file.write_text(json.dumps({'death':70,'ultradash':40,'fastbubble':60}),encoding='utf-8')
+    full = generate('FullIndependent',mapping,extra=('--volumes',str(volume_file)))
     with zipfile.ZipFile(full) as archive:
         assert archive.testzip() is None
         assert set(archive.namelist()) == {'everest.yaml','bin/FullIndependent.dll','README.txt','build-info.json'}
         info=json.loads(archive.read('build-info.json'))
         assert info['runtime']=='IndependentAnnouncer' and all(v==5 for v in info['counts'].values())
+        assert info['volumes']['death']==70 and info['volumes']['ultradash']==40 and info['volumes']['fastbubble']==60
+        assert info['volumes']['demodash']==100
         archive.extract('bin/FullIndependent.dll',target)
     dll = target / 'bin/FullIndependent.dll'
     runtime = subprocess.run([str(repo/'dependencies/IndependentRuntimeTest.exe'),str(dll)], capture_output=True,text=True)
@@ -83,6 +86,9 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
     generate('BadName',{},False,extra=('--name','../unsafe'))
     generate('FullIndependent',mapping,False)
     generate('FullIndependent',mapping,extra=('--overwrite',))
+    for index,bad in enumerate([{'death':-1},{'death':101},{'death':1.5},{'death':True},{'death':'50'},{'oops':50},None]):
+        bad_volume=target/'bad-volume.json';bad_volume.write_text(json.dumps(bad),encoding='utf-8')
+        generate('BadVolume'+str(index),{},False,extra=('--volumes',str(bad_volume)))
     # Decode silence, duration overflow and truncated/corrupt files.
     silent=target/'silent.wav'
     with wave.open(str(silent),'wb') as wav:
@@ -139,6 +145,6 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
                 checked.append({'event':event,'variant':variant,'seconds':len(expected)/48000,'correlation':score})
             print('FMOD direct WAV:',event,'5/5',flush=True)
     finally: os.chdir(previous)
-    (repo/'docs/independent-validation.json').write_text(json.dumps({'version':'1.3.0','runtime_hooks':'passed','game_api_members':'passed',
+    (repo/'docs/v1.4-validation.json').write_text(json.dumps({'version':'1.4.0','runtime_hooks':'passed','ultra_regressions':'collision after dash end and ground coroutine passed','bubble_regressions':'manual green and red exits, duplicate guard passed','event_volumes':'13 controls, defaults, live changes, mute and master multiplication passed','game_api_members':'passed',
         'template_required':False,'fmod_version':'1.10.20','clips':checked,'gameplay_tested':False},indent=2),encoding='utf-8')
 print('PASS: template-free generation, runtime hooks, inputs, 65 direct WAV clips through gameplay SFX bus.')

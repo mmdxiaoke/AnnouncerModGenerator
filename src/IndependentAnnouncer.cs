@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -11,7 +12,78 @@ namespace Celeste.Mod.IndependentAnnouncer {
 public sealed class AnnouncerSettings : EverestModuleSettings {
     public bool Enabled { get; set; }
     [SettingRange(0, 10)] public int Volume { get; set; }
-    public AnnouncerSettings() { Enabled = true; Volume = 10; }
+    [SettingRange(0, 100)] public int CornerBoostVolume { get; set; }
+    [SettingRange(0, 100)] public int DemoDashVolume { get; set; }
+    [SettingRange(0, 100)] public int FastBubbleVolume { get; set; }
+    [SettingRange(0, 100)] public int HyperVolume { get; set; }
+    [SettingRange(0, 100)] public int NeutralJumpVolume { get; set; }
+    [SettingRange(0, 100)] public int SuperVolume { get; set; }
+    [SettingRange(0, 100)] public int UltraVolume { get; set; }
+    [SettingRange(0, 100)] public int WallBounceVolume { get; set; }
+    [SettingRange(0, 100)] public int WavedashVolume { get; set; }
+    [SettingRange(0, 100)] public int DeathVolume { get; set; }
+    [SettingRange(0, 100)] public int GoldenDeathVolume { get; set; }
+    [SettingRange(0, 100)] public int StrawberryVolume { get; set; }
+    [SettingRange(0, 100)] public int GoldenStrawberryVolume { get; set; }
+    public AnnouncerSettings() {
+        Enabled = true; Volume = 10;
+        CornerBoostVolume = 100;
+        DemoDashVolume = 100;
+        FastBubbleVolume = 100;
+        HyperVolume = 100;
+        NeutralJumpVolume = 100;
+        SuperVolume = 100;
+        UltraVolume = 100;
+        WallBounceVolume = 100;
+        WavedashVolume = 100;
+        DeathVolume = 100;
+        GoldenDeathVolume = 100;
+        StrawberryVolume = 100;
+        GoldenStrawberryVolume = 100;
+        using (var stream = typeof(AnnouncerSettings).Assembly.GetManifestResourceStream("announcer.volumes")) {
+            if (stream != null) using (var reader = new StreamReader(stream)) {
+                foreach (string item in reader.ReadToEnd().Split(';')) {
+                    string[] parts = item.Split('='); int value;
+                    if (parts.Length == 2 && Int32.TryParse(parts[1], out value) && value >= 0 && value <= 100) SetEventVolume(parts[0], value);
+                }
+            }
+        }
+    }
+    public int EventVolume(string key) {
+        switch (key) {
+            case "cornerboost": return CornerBoostVolume;
+            case "demodash": return DemoDashVolume;
+            case "fastbubble": return FastBubbleVolume;
+            case "hyperdash": return HyperVolume;
+            case "neutral": return NeutralJumpVolume;
+            case "superdash": return SuperVolume;
+            case "ultradash": return UltraVolume;
+            case "wallbounce": return WallBounceVolume;
+            case "wavedash": return WavedashVolume;
+            case "death": return DeathVolume;
+            case "goldendeath": return GoldenDeathVolume;
+            case "strawberry": return StrawberryVolume;
+            case "goldenstrawberry": return GoldenStrawberryVolume;
+            default: return 100;
+        }
+    }
+    void SetEventVolume(string key, int value) {
+        switch (key) {
+            case "cornerboost": CornerBoostVolume = value; break;
+            case "demodash": DemoDashVolume = value; break;
+            case "fastbubble": FastBubbleVolume = value; break;
+            case "hyperdash": HyperVolume = value; break;
+            case "neutral": NeutralJumpVolume = value; break;
+            case "superdash": SuperVolume = value; break;
+            case "ultradash": UltraVolume = value; break;
+            case "wallbounce": WallBounceVolume = value; break;
+            case "wavedash": WavedashVolume = value; break;
+            case "death": DeathVolume = value; break;
+            case "goldendeath": GoldenDeathVolume = value; break;
+            case "strawberry": StrawberryVolume = value; break;
+            case "goldenstrawberry": GoldenStrawberryVolume = value; break;
+        }
+    }
 }
 
 // All hooks observe the game. Each original method is invoked exactly once.
@@ -21,13 +93,14 @@ public sealed class AnnouncerModule : EverestModule {
     readonly Dictionary<string, int> counts = new Dictionary<string, int>();
     readonly Random random = new Random();
     readonly Dictionary<string, FMOD.Sound> sounds = new Dictionary<string, FMOD.Sound>();
-    readonly List<FMOD.Channel> channels = new List<FMOD.Channel>();
+    readonly List<Voice> channels = new List<Voice>();
+    class Voice { public string Key; public FMOD.Channel Channel; }
     ConditionalWeakTable<Player, Dash> dashes = new ConditionalWeakTable<Player, Dash>();
     FMOD.System core;
     FMOD.Studio.Bus bus;
     FMOD.ChannelGroup group;
     bool loaded, busLocked, audioErrorLogged;
-    class Dash { public Vector2 Direction; public bool Airborne, Ultra, Fresh; }
+    class Dash { public Vector2 Direction; public float StartSpeed; public int Serial; public bool Airborne, Ultra, Fresh, BubbleAnnounced; }
     static readonly Dictionary<string, FieldInfo> Fields = new Dictionary<string, FieldInfo>();
     static readonly FieldInfo Collected = typeof(Strawberry).GetField("collected", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
     static T Field<T>(Player player, string name, T fallback) {
@@ -49,6 +122,8 @@ public sealed class AnnouncerModule : EverestModule {
             }
         }
         On.Celeste.Player.CallDashEvents += CallDash;
+        On.Celeste.Player.DashCoroutine += DashCoroutine;
+        On.Celeste.Player.BoostBegin += BoostBegin;
         On.Celeste.Player.SuperJump += SuperJump;
         On.Celeste.Player.SuperWallJump += WallBounce;
         On.Celeste.Player.WallJump += WallJump;
@@ -63,6 +138,8 @@ public sealed class AnnouncerModule : EverestModule {
     public override void Unload() {
         if (!loaded) return;
         On.Celeste.Player.CallDashEvents -= CallDash;
+        On.Celeste.Player.DashCoroutine -= DashCoroutine;
+        On.Celeste.Player.BoostBegin -= BoostBegin;
         On.Celeste.Player.SuperJump -= SuperJump;
         On.Celeste.Player.SuperWallJump -= WallBounce;
         On.Celeste.Player.WallJump -= WallJump;
@@ -72,7 +149,7 @@ public sealed class AnnouncerModule : EverestModule {
         On.Celeste.Player.Die -= Die;
         On.Celeste.Player.Update -= Update;
         On.Celeste.Strawberry.OnCollect -= Collect;
-        foreach (var channel in channels) channel.stop(); channels.Clear();
+        foreach (var voice in channels) voice.Channel.stop(); channels.Clear();
         foreach (var sound in sounds.Values) sound.release(); sounds.Clear();
         if (busLocked && bus != null) bus.unlockChannelGroup();
         busLocked = false; bus = null; group = null; core = null;
@@ -81,7 +158,7 @@ public sealed class AnnouncerModule : EverestModule {
     void Check(FMOD.RESULT result) { if (result != FMOD.RESULT.OK) throw new InvalidOperationException("FMOD: " + result); }
     void Announce(string key) {
         int count;
-        if (Settings == null || !Settings.Enabled || Settings.Volume <= 0 || !counts.TryGetValue(key, out count) || count == 0) return;
+        if (Settings == null || !Settings.Enabled || Gain(key) <= 0 || !counts.TryGetValue(key, out count) || count == 0) return;
         try {
             if (Audio.System == null) return;
             if (core == null) Check(Audio.System.getLowLevelSystem(out core));
@@ -102,22 +179,26 @@ public sealed class AnnouncerModule : EverestModule {
                 sounds.Add(resource, sound);
             }
             Refresh();
-            if (channels.Count >= 8) { channels[0].stop(); channels.RemoveAt(0); }
+            if (channels.Count >= 8) { channels[0].Channel.stop(); channels.RemoveAt(0); }
             FMOD.Channel channel;
-            Check(core.playSound(sound, group, true, out channel)); channels.Add(channel);
-            Check(channel.setVolume(Math.Min(10, Settings.Volume) / 10f)); Check(channel.setPaused(false));
+            Check(core.playSound(sound, group, true, out channel)); channels.Add(new Voice { Key = key, Channel = channel });
+            Check(channel.setVolume(Gain(key))); Check(channel.setPaused(false));
             audioErrorLogged = false;
         } catch (Exception error) {
             if (!audioErrorLogged) Logger.Log(GetType().Assembly.GetName().Name, "Announcer audio: " + error.Message);
             audioErrorLogged = true;
         }
     }
+    float Gain(string key) {
+        if (Settings == null || !Settings.Enabled) return 0;
+        return Math.Max(0, Math.Min(10, Settings.Volume)) / 10f * Math.Max(0, Math.Min(100, Settings.EventVolume(key))) / 100f;
+    }
     void Refresh() {
         for (int i = channels.Count - 1; i >= 0; i--) {
-            bool playing;
-            if (Settings == null || !Settings.Enabled || Settings.Volume <= 0) channels[i].stop();
-            if (channels[i].isPlaying(out playing) != FMOD.RESULT.OK || !playing) channels.RemoveAt(i);
-            else channels[i].setVolume(Math.Min(10, Settings.Volume) / 10f);
+            Voice voice = channels[i]; bool playing; float gain = Gain(voice.Key);
+            if (gain <= 0) voice.Channel.stop();
+            if (voice.Channel.isPlaying(out playing) != FMOD.RESULT.OK || !playing) channels.RemoveAt(i);
+            else voice.Channel.setVolume(gain);
         }
     }
     void Update(On.Celeste.Player.orig_Update orig, Player self) { orig(self); Refresh(); }
@@ -131,6 +212,7 @@ public sealed class AnnouncerModule : EverestModule {
         // Ground contact can flatten a downward dash before this callback.
         if (self.Ducking && Math.Abs(aim.X) > .01f && aim.Y > .01f) dash.Direction = aim;
         dash.Airborne = !Field(self, "dashStartedOnGround", true); dash.Ultra = false; dash.Fresh = true;
+        dash.StartSpeed = Math.Abs(self.Speed.X); dash.Serial++;
         if (Math.Abs(self.DashDir.X) > .01f && Math.Abs(self.DashDir.Y) < .01f && (self.Ducking || Field(self, "demoDashed", false))) Announce("demodash");
     }
     void SuperJump(On.Celeste.Player.orig_SuperJump orig, Player self) {
@@ -150,15 +232,47 @@ public sealed class AnnouncerModule : EverestModule {
         orig(self);
         if (corner && self.Speed.X * (int)self.Facing > before && self.Speed.Y < 0) Announce("cornerboost");
     }
+    static bool CarriedDownDash(Vector2 direction, float speed) {
+        return Math.Abs(direction.X) > .01f && direction.Y > .01f && speed > 240f * Math.Abs(direction.X) + 1f;
+    }
+    void ConfirmUltra(Player self, Dash dash, Vector2 direction, float beforeSpeed) {
+        // The game applies this boost even after StDash has ended, and also
+        // directly inside DashCoroutine when the player is already on ground.
+        if (!dash.Ultra && CarriedDownDash(direction, beforeSpeed) && Math.Abs(self.DashDir.Y) < .01f &&
+            Math.Sign(self.DashDir.X) == Math.Sign(direction.X) && Math.Abs(self.Speed.Y) < .01f && Math.Abs(self.Speed.X) > beforeSpeed * 1.1f) {
+            dash.Ultra = true; Announce("ultradash");
+        }
+    }
     void CollideV(On.Celeste.Player.orig_OnCollideV orig, Player self, CollisionData data) {
-        Vector2 dir = self.DashDir; float speed = Math.Abs(self.Speed.X); Dash dash;
-        bool ultra = dashes.TryGetValue(self, out dash) && !dash.Ultra && Math.Abs(dir.X) > .01f && dir.Y > .01f && self.Speed.Y > 0 && self.StateMachine.State == 2 && speed > 240f * Math.Abs(dir.X) + 1f;
+        Vector2 direction = self.DashDir; float speed = Math.Abs(self.Speed.X);
+        bool falling = self.Speed.Y > 0; Dash dash = dashes.GetOrCreateValue(self);
         orig(self, data);
-        if (ultra && Math.Abs(self.Speed.Y) < .01f && Math.Abs(self.Speed.X) > speed * 1.1f) { dash.Ultra = true; Announce("ultradash"); }
+        if (falling) ConfirmUltra(self, dash, direction, speed);
+    }
+    IEnumerator DashCoroutine(On.Celeste.Player.orig_DashCoroutine orig, Player self) { return ObserveDash(orig(self), self); }
+    IEnumerator ObserveDash(IEnumerator original, Player self) {
+        try {
+            while (true) {
+                Dash dash = dashes.GetOrCreateValue(self); int serial = dash.Serial;
+                bool more = original.MoveNext();
+                // CallDash captures the direction and speed before the game's
+                // coroutine flattens the dash and multiplies carried speed.
+                if (dash.Serial != serial) ConfirmUltra(self, dash, dash.Direction, dash.StartSpeed);
+                if (!more) yield break;
+                yield return original.Current;
+            }
+        } finally { var disposable = original as IDisposable; if (disposable != null) disposable.Dispose(); }
+    }
+    void BoostBegin(On.Celeste.Player.orig_BoostBegin orig, Player self) {
+        dashes.GetOrCreateValue(self).BubbleAnnounced = false; orig(self);
     }
     int BoostUpdate(On.Celeste.Player.orig_BoostUpdate orig, Player self) {
-        bool green = self.StateMachine.State == 4 && !Field(self, "boostRed", true);
-        int next = orig(self); if (green && next == 2) Announce("fastbubble"); return next;
+        bool inBubble = self.StateMachine.State == 4;
+        int next = orig(self); Dash dash = dashes.GetOrCreateValue(self);
+        if (inBubble && (next == 2 || next == 5) && !dash.BubbleAnnounced) {
+            dash.BubbleAnnounced = true; Announce("fastbubble");
+        }
+        return next;
     }
     PlayerDeadBody Die(On.Celeste.Player.orig_Die orig, Player self, Vector2 direction, bool evenIfInvincible, bool registerDeathInStats) {
         bool wasDead = self.Dead, golden = false;

@@ -13,7 +13,6 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
 using Mono.Cecil;
-using Mono.Cecil.Cil;
 
 namespace AnnouncerBuilder {
 public static class Builder {
@@ -21,7 +20,7 @@ public static class Builder {
     public static readonly string[] Labels = { "抓角加速", "下蹲冲刺", "泡泡快启", "Hyper", "中性跳", "Super", "Ultra", "蹭墙跳", "凌波微步", "普通死亡", "带金草莓死亡", "吃掉草莓", "吃掉金草莓" };
     public static readonly string[] Extensions = { ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".wma", ".opus", ".aiff", ".aif" };
     const int Rate = 48000, MaximumBytes = Rate * 2 * 30;
-    public const string Version = "1.3.0";
+    public const string Version = "1.4.0";
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
     public static string DetectEvent(string path) {
@@ -129,10 +128,26 @@ public static class Builder {
         }
         return files;
     }
+    public static Dictionary<string, int> ReadVolumes(string manifest) {
+        var raw = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(manifest, Encoding.UTF8));
+        if (raw == null) throw new Exception("音量映射应为 JSON 对象。");
+        var values = new Dictionary<string, int>();
+        foreach (var pair in raw) {
+            if (!Events.Contains(pair.Key)) throw new Exception("未知播报项目：" + pair.Key);
+            if (!(pair.Value is int) || (int)pair.Value < 0 || (int)pair.Value > 100) throw new Exception(pair.Key + " 的音量须为 0–100 的整数。");
+            values.Add(pair.Key, (int)pair.Value);
+        }
+        return values;
+    }
     public static string Generate(string name, Dictionary<string, string> inputs, string outputPath, string ffmpeg, bool overwrite, Action<string> log) {
         return Generate(name, inputs.ToDictionary(p => p.Key, p => String.IsNullOrWhiteSpace(p.Value) ? new List<string>() : new List<string> { p.Value }), outputPath, ffmpeg, overwrite, log);
     }
     public static string Generate(string name, Dictionary<string, List<string>> inputs, string outputPath, string ffmpeg, bool overwrite, Action<string> log) {
+        return Generate(name, inputs, outputPath, ffmpeg, overwrite, log, new Dictionary<string, int>());
+    }
+    public static string Generate(string name, Dictionary<string, List<string>> inputs, string outputPath, string ffmpeg, bool overwrite, Action<string> log, Dictionary<string, int> volumes) {
+        if (volumes == null || volumes.Any(p => !Events.Contains(p.Key) || p.Value < 0 || p.Value > 100)) throw new Exception("每项播报音量须为 0–100 的整数。");
+        var eventVolumes = Events.ToDictionary(e => e, e => volumes.ContainsKey(e) ? volumes[e] : 100);
         if (!Regex.IsMatch(name ?? "", @"^[A-Za-z][A-Za-z0-9_-]{2,63}$")) throw new Exception("语音包名字须为 3–64 位英文、数字、下划线或短横线，并以英文字母开头。");
         if (String.Equals(name, "TechAnnouncer", StringComparison.OrdinalIgnoreCase)) throw new Exception("请使用新的语音包名字，避免覆盖 TechAnnouncer 本体。");
         if (inputs.Keys.Any(e => !Events.Contains(e))) throw new Exception("音频映射包含未知播报项目。");
@@ -161,11 +176,12 @@ public static class Builder {
         }
         byte[] runtime;
         using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(Resource("runtime.support")))) {
-            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 3, 0, 0);
+            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 4, 0, 0);
             assembly.MainModule.Name = name + ".dll"; assembly.MainModule.Mvid = Guid.NewGuid();
             foreach (var clip in clips) assembly.MainModule.Resources.Add(new EmbeddedResource(clip.Key, Mono.Cecil.ManifestResourceAttributes.Private, clip.Value));
             string config = String.Join(";", selected.Select(p => p.Key + "=" + p.Value.Count));
             assembly.MainModule.Resources.Add(new EmbeddedResource("announcer.config", Mono.Cecil.ManifestResourceAttributes.Private, Encoding.UTF8.GetBytes(config)));
+            assembly.MainModule.Resources.Add(new EmbeddedResource("announcer.volumes", Mono.Cecil.ManifestResourceAttributes.Private, Encoding.UTF8.GetBytes(String.Join(";", eventVolumes.Select(p => p.Key + "=" + p.Value)))));
             using (var bytes = new MemoryStream()) { assembly.Write(bytes); runtime = bytes.ToArray(); }
         }
         string yaml = "- Name: " + name + "\n  Version: " + Version + "\n  DLL: bin/" + name + ".dll\n  Dependencies:\n    - Name: Everest\n      Version: 1.2781.0\n";
@@ -176,7 +192,7 @@ public static class Builder {
                 Add(zip, "everest.yaml", Encoding.UTF8.GetBytes(yaml));
                 Add(zip, "bin/" + name + ".dll", runtime);
                 Add(zip, "README.txt", Encoding.UTF8.GetBytes(readme));
-                Add(zip, "build-info.json", Encoding.UTF8.GetBytes(Json.Serialize(new { name = name, version = Version, sample_rate = Rate, channels = 1, runtime = "IndependentAnnouncer", audio_format = "embedded_pcm_wav", sources = sourceInfo, counts = selected.ToDictionary(p => p.Key, p => p.Value.Count) })));
+                Add(zip, "build-info.json", Encoding.UTF8.GetBytes(Json.Serialize(new { name = name, version = Version, sample_rate = Rate, channels = 1, runtime = "IndependentAnnouncer", audio_format = "embedded_pcm_wav", sources = sourceInfo, volumes = eventVolumes, counts = selected.ToDictionary(p => p.Key, p => p.Value.Count) })));
             }
             if (File.Exists(outputPath)) { if (!overwrite) throw new Exception("输出文件在制作期间已被创建，请换一个输出路径。"); File.Replace(temp, outputPath, null); }
             else File.Move(temp, outputPath);
@@ -190,6 +206,7 @@ public static class Builder {
 public class MainWindow : Form {
     TextBox packName = new TextBox(), ffmpeg = new TextBox();
     TextBox[] inputs = new TextBox[Builder.Events.Length];
+    NumericUpDown[] volumes = new NumericUpDown[Builder.Events.Length];
     List<string>[] clips = Builder.Events.Select(e => new List<string>()).ToArray(); Button build = new Button(), folder = new Button(), ffmpegBrowse = new Button(), openOutput = new Button();
     List<Button> inputButtons = new List<Button>(); RichTextBox log = new RichTextBox(); string result;
     public MainWindow() {
@@ -207,16 +224,19 @@ public class MainWindow : Form {
         naming.Controls.Add(new Label { Text = "3–64 位英文 / 数字 / _ / -", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(86, 102, 125) }, 2, 0); layout.Controls.Add(naming, 0, 1);
         var imports = new FlowLayoutPanel { Dock = DockStyle.Fill };
         folder.Text = "选择音频文件夹"; folder.Size = new Size(160, 34); folder.Click += (s, e) => ImportFolder(); imports.Controls.Add(folder);
-        imports.Controls.Add(new Label { Text = "共 13 项，可向下滚动；支持 death_1 等编号文件名。", AutoSize = true, Padding = new Padding(10, 8, 0, 0), ForeColor = Color.FromArgb(86, 102, 125) }); layout.Controls.Add(imports, 0, 2);
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = Builder.Events.Length, BackColor = Color.White, Padding = new Padding(8, 2, 8, 2) };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
+        imports.Controls.Add(new Label { Text = "共 13 项，可向下滚动；每项音量 0–100%，游戏中也可调整。", AutoSize = true, Padding = new Padding(10, 8, 0, 0), ForeColor = Color.FromArgb(86, 102, 125) }); layout.Controls.Add(imports, 0, 2);
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = Builder.Events.Length, BackColor = Color.White, Padding = new Padding(8, 2, 8, 2) };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 88));
         for (int i = 0; i < Builder.Events.Length; i++) {
             int index = i; grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             grid.Controls.Add(new Label { Text = Builder.Labels[i], Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = new Font(Font.FontFamily, 9F) }, 0, i);
             inputs[i] = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 10, 3), AllowDrop = true, ReadOnly = true };
             inputs[i].DragEnter += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy; };
             inputs[i].DragDrop += (s, e) => { string[] p = (string[])e.Data.GetData(DataFormats.FileDrop); SetClips(index, p); };
-            grid.Controls.Add(inputs[i], 1, i); var button = new Button { Text = "管理…", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3) }; button.Click += (s, e) => SelectAudio(index); inputButtons.Add(button); grid.Controls.Add(button, 2, i);
+            volumes[i] = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 100, Increment = 5, Width = 65, Margin = new Padding(0, 6, 0, 0) };
+            var volumePanel = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) }; volumePanel.Controls.Add(volumes[i]);
+            volumePanel.Controls.Add(new Label { Text = "%", AutoSize = true, Margin = new Padding(0, 8, 0, 0) }); grid.Controls.Add(volumePanel, 2, i);
+            grid.Controls.Add(inputs[i], 1, i); var button = new Button { Text = "管理…", Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3) }; button.Click += (s, e) => SelectAudio(index); inputButtons.Add(button); grid.Controls.Add(button, 3, i);
         }
         grid.Dock = DockStyle.Top; grid.Height = Builder.Events.Length * 42 + 8;
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true }; scroll.Controls.Add(grid); layout.Controls.Add(scroll, 0, 3);
@@ -254,16 +274,17 @@ public class MainWindow : Form {
             if (dialog.ShowDialog(this) == DialogResult.OK) SetClips(i, list.Items.Cast<string>());
         }
     }
-    void Busy(bool busy) { build.Enabled = !busy; folder.Enabled = !busy; packName.Enabled = !busy; ffmpeg.Enabled = !busy; ffmpegBrowse.Enabled = !busy; foreach (var t in inputs) t.Enabled = !busy; foreach (var b in inputButtons) b.Enabled = !busy; openOutput.Enabled = !busy && File.Exists(result); }
+    void Busy(bool busy) { build.Enabled = !busy; folder.Enabled = !busy; packName.Enabled = !busy; ffmpeg.Enabled = !busy; ffmpegBrowse.Enabled = !busy; foreach (var t in inputs) t.Enabled = !busy; foreach (var volume in volumes) volume.Enabled = !busy; foreach (var b in inputButtons) b.Enabled = !busy; openOutput.Enabled = !busy && File.Exists(result); }
     async Task Generate() {
         var files = new Dictionary<string, List<string>>(); for (int i = 0; i < Builder.Events.Length; i++) files[Builder.Events[i]] = new List<string>(clips[i]);
+        var gains = Builder.Events.Select((e, i) => new { Key = e, Value = (int)volumes[i].Value }).ToDictionary(p => p.Key, p => p.Value);
         string name = packName.Text.Trim(), converter = ffmpeg.Text.Trim().Trim('"');
         using (var d = new SaveFileDialog { Filter = "Mod ZIP|*.zip", FileName = name + ".zip", InitialDirectory = AppDomain.CurrentDomain.BaseDirectory, OverwritePrompt = true, AddExtension = true }) {
             if (d.ShowDialog() != DialogResult.OK) return;
             bool overwrite = File.Exists(d.FileName); Busy(true); log.Clear();
             try {
                 string target = d.FileName;
-                result = await Task.Run(() => Builder.Generate(name, files, target, converter, overwrite, line => BeginInvoke(new Action(() => { log.AppendText(line + Environment.NewLine); log.ScrollToCaret(); }))));
+                result = await Task.Run(() => Builder.Generate(name, files, target, converter, overwrite, line => BeginInvoke(new Action(() => { log.AppendText(line + Environment.NewLine); log.ScrollToCaret(); })), gains));
                 MessageBox.Show("已生成：\n" + result + "\n\n把 ZIP 放进 Mods，在 " + name + " 的选项中开启 Enabled，并关闭其他技巧播报 Mod 的 Enabled。", "制作完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
             } catch (Exception ex) { log.AppendText("失败：" + ex.Message); MessageBox.Show(ex.Message, "未能生成", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             finally { Busy(false); }
@@ -279,11 +300,11 @@ static class Program {
                 Console.SetError(new StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false)) { AutoFlush = true });
                 var a = new Dictionary<string, string>(); bool overwrite = false;
                 for (int i = 0; i < args.Length; i++) { if (args[i] == "--overwrite") overwrite = true; else { if (!args[i].StartsWith("--") || i + 1 >= args.Length) throw new Exception("参数格式错误。"); a[args[i]] = args[++i]; } }
-                if (!a.ContainsKey("--name") || !a.ContainsKey("--output") || (!a.ContainsKey("--input-dir") && !a.ContainsKey("--inputs"))) throw new Exception("用法：AnnouncerMod生成器.exe --name MyAnnouncer --input-dir 音频文件夹 --output MyAnnouncer.zip [--ffmpeg 路径] [--overwrite]\n也可用 --inputs 映射.json 指定可选文件或每项最多五条的路径数组。");
+                if (!a.ContainsKey("--name") || !a.ContainsKey("--output") || (!a.ContainsKey("--input-dir") && !a.ContainsKey("--inputs"))) throw new Exception("用法：AnnouncerMod生成器.exe --name MyAnnouncer --input-dir 音频文件夹 --output MyAnnouncer.zip [--ffmpeg 路径] [--volumes 音量.json] [--overwrite]\n也可用 --inputs 映射.json 指定可选文件或每项最多五条的路径数组。");
                 Dictionary<string, List<string>> files;
                 if (a.ContainsKey("--inputs")) files = Builder.ReadInputs(a["--inputs"]);
                 else files = Builder.ReadFolder(a["--input-dir"]);
-                Builder.Generate(a["--name"], files, a["--output"], a.ContainsKey("--ffmpeg") ? a["--ffmpeg"] : Builder.FindFFmpeg(), overwrite, Console.WriteLine); return 0;
+                Builder.Generate(a["--name"], files, a["--output"], a.ContainsKey("--ffmpeg") ? a["--ffmpeg"] : Builder.FindFFmpeg(), overwrite, Console.WriteLine, a.ContainsKey("--volumes") ? Builder.ReadVolumes(a["--volumes"]) : new Dictionary<string, int>()); return 0;
             } catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
         }
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);

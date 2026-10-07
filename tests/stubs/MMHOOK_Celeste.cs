@@ -37,6 +37,14 @@ namespace On.Celeste {
   public delegate void hook_Update(orig_Update orig,global::Celeste.Player self);
   public static event hook_Update Update;
   public static void TestUpdate(orig_Update orig,global::Celeste.Player self) { Update(orig,self); }
+  public delegate void orig_BoostBegin(global::Celeste.Player self);
+  public delegate void hook_BoostBegin(orig_BoostBegin orig,global::Celeste.Player self);
+  public static event hook_BoostBegin BoostBegin;
+  public static void TestBoostBegin(orig_BoostBegin orig,global::Celeste.Player self) { BoostBegin(orig,self); }
+  public delegate System.Collections.IEnumerator orig_DashCoroutine(global::Celeste.Player self);
+  public delegate System.Collections.IEnumerator hook_DashCoroutine(orig_DashCoroutine orig,global::Celeste.Player self);
+  public static event hook_DashCoroutine DashCoroutine;
+  public static System.Collections.IEnumerator TestDashCoroutine(orig_DashCoroutine orig,global::Celeste.Player self) { return DashCoroutine(orig,self); }
   public static int TestSubscribers { get { return Die==null ? 0 : Die.GetInvocationList().Length; } }
  }
  public static class Strawberry {
