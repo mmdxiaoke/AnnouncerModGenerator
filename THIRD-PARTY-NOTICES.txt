@@ -26,8 +26,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 External dependencies (not distributed in this repository or release)
-TechAnnouncer 1.0.1: original author Brokemia.
-Users must supply their own authorized template and audio.
-The generator's MIT license does not grant rights to those materials.
+Celeste / Everest / FNA / FMOD: provided by the user's installed game.
+The runtime references their public APIs; no game code or native libraries are bundled.
+The small API declarations in tests/stubs are original compilation/test doubles.
+User audio: users must have the necessary rights; this project grants none.
 FFmpeg: https://ffmpeg.org/download.html
 Users install FFmpeg separately; its chosen build's own license applies.

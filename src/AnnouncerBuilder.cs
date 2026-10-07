@@ -21,9 +21,7 @@ public static class Builder {
     public static readonly string[] Labels = { "抓角加速", "下蹲冲刺", "泡泡快启", "Hyper", "中性跳", "Super", "Ultra", "蹭墙跳", "凌波微步", "普通死亡", "带金草莓死亡", "吃掉草莓", "吃掉金草莓" };
     public static readonly string[] Extensions = { ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".wma", ".opus", ".aiff", ".aif" };
     const int Rate = 48000, MaximumBytes = Rate * 2 * 30;
-    const string TemplateHash = "0ef0f3fc74299b70b896410b5a1b58e0261e3d500322b88b1385f1248ad008b2";
-    public const string Version = "1.2.0";
-    static readonly string[] BankEvents = Events.Take(9).ToArray();
+    public const string Version = "1.3.0";
     static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
     public static string DetectEvent(string path) {
@@ -101,49 +99,16 @@ public static class Builder {
     }
     static byte[] Resource(string name) {
         using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)) {
-            if (input == null) {
-                string template = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TechAnnouncer.zip");
-                if (!File.Exists(template)) throw new Exception("请把原版 TechAnnouncer 1.0.1 的 TechAnnouncer.zip 放在生成器旁边，再重新生成。");
-                string entry = name == "template.bank" ? "Audio/TechAnnouncer.bank" : name == "template.guids" ? "Audio/TechAnnouncer.guids.txt" : name == "template.detector" ? "bin/TechAnnouncer.dll" : null;
-                if (entry == null) throw new Exception("未知的模板资源。");
-                using (var archive = ZipFile.OpenRead(template)) {
-                    var file = archive.GetEntry(entry);
-                    if (file == null || file.Length > 8 * 1024 * 1024) throw new Exception("TechAnnouncer.zip 模板缺少文件或格式不正确：" + entry);
-                    using (var stream = file.Open()) using (var output = new MemoryStream()) { stream.CopyTo(output); return output.ToArray(); }
-                }
-            }
+            if (input == null) throw new Exception("生成器内置运行程序缺失，请重新下载。");
             using (var ms = new MemoryStream()) { input.CopyTo(ms); return ms.ToArray(); }
         }
     }
     static string SHA(byte[] b) { using (var h = SHA256.Create()) return BitConverter.ToString(h.ComputeHash(b)).Replace("-", "").ToLowerInvariant(); }
-    static void Put(byte[] b, int pos, uint value) { Array.Copy(BitConverter.GetBytes(value), 0, b, pos, 4); }
-    static byte[] Slice(byte[] b, int pos, int count) { var a = new byte[count]; Array.Copy(b, pos, a, 0, count); return a; }
-    class Chunk { public string Tag; public int Pos, Size; public int Data { get { return Pos + 8; } } }
-    static void Walk(byte[] bank, int start, int end, List<Chunk> chunks) {
-        for (int pos = start; pos + 8 <= end; ) {
-            string tag = Encoding.ASCII.GetString(bank, pos, 4); int size = checked((int)BitConverter.ToUInt32(bank, pos + 4));
-            if (size < 0 || pos + 8L + size > end) throw new Exception("音频库模板结构损坏。");
-            var chunk = new Chunk { Tag = tag, Pos = pos, Size = size }; chunks.Add(chunk);
-            if (tag == "LIST") Walk(bank, pos + 12, pos + 8 + size, chunks);
-            pos += 8 + size + size % 2;
-        }
-    }
-    static Guid Unique(Guid ns, string label) {
-        // RFC 4122 UUID v5: network byte order for hashing, .NET byte order for bank storage.
-        byte[] prefix = ns.ToByteArray(); Swap(prefix); byte[] text = Encoding.UTF8.GetBytes(label); byte[] data = new byte[prefix.Length + text.Length];
-        Array.Copy(prefix, data, prefix.Length); Array.Copy(text, 0, data, prefix.Length, text.Length);
-        byte[] hash; using (var sha = SHA1.Create()) hash = sha.ComputeHash(data);
-        hash = hash.Take(16).ToArray(); hash[6] = (byte)((hash[6] & 15) | 80); hash[8] = (byte)((hash[8] & 63) | 128); Swap(hash); return new Guid(hash);
-    }
-    static void Swap(byte[] b) { Array.Reverse(b, 0, 4); Array.Reverse(b, 4, 2); Array.Reverse(b, 6, 2); }
-    static void ReplaceGuids(byte[] bank, int metadataEnd, Dictionary<Guid, Guid> replacements) {
-        // One pass over the unmodified input avoids chained replacements.
-        byte[] original = (byte[])bank.Clone();
-        for (int pos = 0; pos + 16 <= metadataEnd; pos++) {
-            Guid replacement;
-            if (replacements.TryGetValue(new Guid(Slice(original, pos, 16)), out replacement)) {
-                Array.Copy(replacement.ToByteArray(), 0, bank, pos, 16); pos += 15;
-            }
+    static byte[] Wave(byte[] pcm) {
+        using (var ms = new MemoryStream()) using (var w = new BinaryWriter(ms)) {
+            w.Write(Encoding.ASCII.GetBytes("RIFF")); w.Write(pcm.Length + 36); w.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+            w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(Rate); w.Write(Rate * 2); w.Write((short)2); w.Write((short)16);
+            w.Write(Encoding.ASCII.GetBytes("data")); w.Write(pcm.Length); w.Write(pcm); return ms.ToArray();
         }
     }
     public static Dictionary<string, List<string>> ReadInputs(string manifest) {
@@ -183,194 +148,43 @@ public static class Builder {
         if (!String.Equals(Path.GetExtension(outputPath), ".zip", StringComparison.OrdinalIgnoreCase)) throw new Exception("输出文件应以 .zip 结尾。");
         if (File.Exists(outputPath) && !overwrite) throw new Exception("输出 ZIP 已存在，请另选文件名，或确认覆盖后重新生成。");
         if (allFiles.Any(f => String.Equals(Path.GetFullPath(f), outputPath, StringComparison.OrdinalIgnoreCase))) throw new Exception("输出路径不能覆盖输入音频。");
-        var banks = new List<GeneratedBank>(); var sourceInfo = new Dictionary<string, object>(); int done = 0;
+        var clips = new Dictionary<string, byte[]>(); var sourceInfo = new Dictionary<string, object>(); int done = 0;
         foreach (string e in Events) {
             var sources = new List<object>();
             for (int variant = 0; variant < selected[e].Count; variant++) {
                 string file = selected[e][variant]; log("转换 " + (++done) + "/" + allFiles.Length + "：" + e + " #" + (variant + 1));
                 byte[] audio = Decode(file, ffmpeg);
                 sources.Add(new { file = Path.GetFileName(file), seconds = audio.Length / 96000.0, pcm_sha256 = SHA(audio) });
-                banks.Add(BuildBank(name + "_" + e + "_" + (variant + 1), name.ToLowerInvariant(), e + "_v" + (variant + 1), audio));
+                clips.Add("announcer." + e + ".v" + (variant + 1) + ".wav", Wave(audio));
             }
             if (sources.Count > 0) sourceInfo[e] = sources;
         }
         byte[] runtime;
         using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(Resource("runtime.support")))) {
-            assembly.Name.Name = name + "Runtime"; assembly.MainModule.Name = name + "Runtime.dll";
+            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 3, 0, 0);
+            assembly.MainModule.Name = name + ".dll"; assembly.MainModule.Mvid = Guid.NewGuid();
+            foreach (var clip in clips) assembly.MainModule.Resources.Add(new EmbeddedResource(clip.Key, Mono.Cecil.ManifestResourceAttributes.Private, clip.Value));
+            string config = String.Join(";", selected.Select(p => p.Key + "=" + p.Value.Count));
+            assembly.MainModule.Resources.Add(new EmbeddedResource("announcer.config", Mono.Cecil.ManifestResourceAttributes.Private, Encoding.UTF8.GetBytes(config)));
             using (var bytes = new MemoryStream()) { assembly.Write(bytes); runtime = bytes.ToArray(); }
         }
-        byte[] detector = CreateDetector(name, selected.ToDictionary(p => p.Key, p => p.Value.Count), runtime);
         string yaml = "- Name: " + name + "\n  Version: " + Version + "\n  DLL: bin/" + name + ".dll\n  Dependencies:\n    - Name: Everest\n      Version: 1.2781.0\n";
         string readme = name + " " + Version + "\r\n\r\n将 ZIP 放进 Everest 版蔚蓝的 Mods 文件夹。开启本 Mod 的 Enabled，关闭其他播报 Mod。\r\n未添加音频的项目不播报；多条音频每次等概率随机选择。带金死亡和金草莓收集分别仅触发各自的播报。\r\n";
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)); string temp = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try {
             using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create)) {
-                Add(zip, "everest.yaml", Encoding.UTF8.GetBytes(yaml)); Add(zip, name + "Config.yaml", Encoding.UTF8.GetBytes("VoicePacks:\n  - " + name + "\n"));
-                Add(zip, "bin/" + name + ".dll", detector); Add(zip, "bin/" + name + "Runtime.dll", runtime);
-                foreach (var bank in banks) { Add(zip, "Audio/" + bank.Name + ".bank", bank.Data); Add(zip, "Audio/" + bank.Name + ".guids.txt", Encoding.UTF8.GetBytes(bank.Guids)); }
+                Add(zip, "everest.yaml", Encoding.UTF8.GetBytes(yaml));
+                Add(zip, "bin/" + name + ".dll", runtime);
                 Add(zip, "README.txt", Encoding.UTF8.GetBytes(readme));
-                Add(zip, "build-info.json", Encoding.UTF8.GetBytes(Json.Serialize(new { name = name, version = Version, sample_rate = Rate, channels = 1, template_sha256 = TemplateHash, sources = sourceInfo, counts = selected.ToDictionary(p => p.Key, p => p.Value.Count) })));
+                Add(zip, "build-info.json", Encoding.UTF8.GetBytes(Json.Serialize(new { name = name, version = Version, sample_rate = Rate, channels = 1, runtime = "IndependentAnnouncer", audio_format = "embedded_pcm_wav", sources = sourceInfo, counts = selected.ToDictionary(p => p.Key, p => p.Value.Count) })));
             }
             if (File.Exists(outputPath)) { if (!overwrite) throw new Exception("输出文件在制作期间已被创建，请换一个输出路径。"); File.Replace(temp, outputPath, null); }
             else File.Move(temp, outputPath);
         } finally { if (File.Exists(temp)) File.Delete(temp); }
         log("完成：" + outputPath); return outputPath;
     }
-    class GeneratedBank { public string Name; public byte[] Data; public string Guids; }
-    static GeneratedBank BuildBank(string name, string publicSlug, string eventKey, byte[] clip) {
-        string slug = name.ToLowerInvariant();
-        var pcm = BankEvents.ToDictionary(e => e, e => e == "cornerboost" ? clip : new byte[960]);
-        pcm["farewell"] = new byte[960];
-        byte[] bank = Resource("template.bank");
-        if (SHA(bank) != TemplateHash) throw new Exception("模板校验失败，请使用原版 TechAnnouncer 1.0.1。");
-        var chunks = new List<Chunk>(); Walk(bank, 12, bank.Length, chunks);
-        var snd = chunks.Single(c => c.Tag == "SND "); int fsbPos = snd.Data + 20;
-        if (Encoding.ASCII.GetString(bank, fsbPos, 4) != "FSB5") throw new Exception("模板音频格式不受支持。");
-        int count = (int)BitConverter.ToUInt32(bank, fsbPos + 8), oldHeadersSize = (int)BitConverter.ToUInt32(bank, fsbPos + 12), namesSize = (int)BitConverter.ToUInt32(bank, fsbPos + 16);
-        byte[] names = Slice(bank, fsbPos + 60 + oldHeadersSize, namesSize), fsbHeader = Slice(bank, fsbPos, 60);
-        byte[] fsb;
-        using (var sampleHeaders = new MemoryStream()) using (var sampleData = new MemoryStream()) {
-            for (int i = 0; i < count; i++) {
-                int offset = (int)BitConverter.ToUInt32(names, i * 4), end = offset; while (names[end] != 0) end++;
-                string e = Encoding.UTF8.GetString(names, offset, end - offset); byte[] audio = pcm[e];
-                while (sampleData.Length % 32 != 0) sampleData.WriteByte(0);
-                ulong header = ((ulong)(audio.Length / 2) << 34) | ((ulong)(sampleData.Length / 32) << 7) | (9UL << 1);
-                byte[] hb = BitConverter.GetBytes(header); sampleHeaders.Write(hb, 0, hb.Length); sampleData.Write(audio, 0, audio.Length);
-            }
-            while (sampleData.Length % 32 != 0) sampleData.WriteByte(0);
-            Put(fsbHeader, 12, (uint)sampleHeaders.Length); Put(fsbHeader, 20, (uint)sampleData.Length); Put(fsbHeader, 24, 2);
-            using (var md5 = MD5.Create()) Array.Copy(md5.ComputeHash(sampleData.ToArray()), 0, fsbHeader, 36, 16);
-            using (var data = new MemoryStream()) { data.Write(fsbHeader, 0, fsbHeader.Length); sampleHeaders.WriteTo(data); data.Write(names, 0, names.Length); sampleData.WriteTo(data); fsb = data.ToArray(); }
-        }
-        var guidPaths = new Dictionary<Guid, string>();
-        string guidText = Encoding.UTF8.GetString(Resource("template.guids"));
-        foreach (string line in guidText.Split('\n')) {
-            var m = Regex.Match(line.Trim(), @"^\{([\w-]+)\} (.+)$"); if (m.Success) guidPaths[new Guid(m.Groups[1].Value)] = m.Groups[2].Value;
-        }
-        // Flatten split phrases into one full clip; old authoring source offsets
-        // would otherwise skip beginnings or overlap longer replacement audio.
-        var secondaryWais = new HashSet<Guid>();
-        var eventTimelines = new HashSet<Guid>();
-        var silentWave = chunks.First(c => c.Tag == "WAV " && BitConverter.ToUInt32(bank, c.Data + 22) == 0);
-        byte[] silenceId = Slice(bank, silentWave.Data, 16);
-        foreach (var c in chunks.Where(c => c.Tag == "TLNB")) {
-            string path; if (!guidPaths.TryGetValue(new Guid(Slice(bank, c.Data + 16, 16)), out path)) continue;
-            string e = path.Substring(path.LastIndexOf('/') + 1);
-            if (!pcm.ContainsKey(e)) continue;
-            eventTimelines.Add(new Guid(Slice(bank, c.Data, 16)));
-            var positions = new List<int>();
-            for (int pos = c.Data + 54; pos + 14 <= c.Data + c.Size; pos += 24) positions.Add(pos);
-            int primary = positions.OrderBy(p => BitConverter.ToUInt32(bank, p)).First();
-            foreach (int pos in positions) {
-                Put(bank, pos, 0); Put(bank, pos + 4, pos == primary ? (uint)(pcm[e].Length / 2 + 4800) : 0);
-                if (pos != primary) secondaryWais.Add(new Guid(Slice(bank, pos - 16, 16)));
-            }
-        }
-        foreach (var c in chunks.Where(c => c.Tag == "WAIB"))
-            if (secondaryWais.Contains(new Guid(Slice(bank, c.Data, 16)))) Array.Copy(silenceId, 0, bank, c.Data + 16, 16);
-        foreach (var c in chunks.Where(c => c.Tag == "INST"))
-            if (c.Size == 123 && eventTimelines.Contains(new Guid(Slice(bank, c.Data, 16)))) Put(bank, c.Data + 111, 0);
-        Guid ns = Unique(new Guid("9e70a2d8-94e2-4e94-8aa4-9f2db8d97805"), "pack:" + slug);
-        var map = new Dictionary<Guid, Guid>(); var export = new List<string>();
-        foreach (var item in guidPaths) {
-            string path = item.Value, newPath;
-            if (path.StartsWith("event:/brokemia/tech_announcer/")) {
-                string[] parts = path.Split('/'); string originalPack = parts[parts.Length - 2], e = parts.Last();
-                newPath = "event:/brokemia/tech_announcer/" + (originalPack == "jeffsteitzer" && e == "cornerboost" ? publicSlug + "/" + eventKey : slug + "_internal/" + originalPack + "/" + e);
-                Guid id = Unique(ns, newPath); map[item.Key] = id; export.Add("{" + id + "} " + newPath);
-            } else if (path == "bank:/TechAnnouncer") {
-                newPath = "bank:/" + name; Guid id = Unique(ns, newPath); map[item.Key] = id; export.Add("{" + id + "} " + newPath);
-            }
-        }
-        string[] owned = { "BNKI", "IBSB", "GBSB", "MBSB", "EVTB", "TLNB", "WAIB", "INST", "WAV " };
-        foreach (var c in chunks.Where(c => owned.Contains(c.Tag))) {
-            Guid old = new Guid(Slice(bank, c.Data, 16)); if (!map.ContainsKey(old)) map[old] = Unique(ns, "object:" + old);
-        }
-        ReplaceGuids(bank, snd.Pos, map);
-        byte[] rebuilt = new byte[snd.Pos + 28 + fsb.Length]; Array.Copy(bank, rebuilt, snd.Pos); Encoding.ASCII.GetBytes("SND ").CopyTo(rebuilt, snd.Pos);
-        Put(rebuilt, snd.Pos + 4, (uint)(20 + fsb.Length)); fsb.CopyTo(rebuilt, snd.Pos + 28); Put(rebuilt, 4, (uint)(rebuilt.Length - 8));
-        var sndh = chunks.Single(c => c.Tag == "SNDH"); Put(rebuilt, sndh.Data + 8, (uint)fsb.Length);
-        return new GeneratedBank { Name = name, Data = rebuilt, Guids = String.Join("\n", export) };
-    }
     static void Add(ZipArchive zip, string name, byte[] bytes) { using (var s = zip.CreateEntry(name, CompressionLevel.Optimal).Open()) s.Write(bytes, 0, bytes.Length); }
-    static void LongBranches(MethodDefinition m) {
-        foreach (var i in m.Body.Instructions) {
-            if (i.OpCode == OpCodes.Br_S) i.OpCode = OpCodes.Br;
-            else if (i.OpCode == OpCodes.Brtrue_S) i.OpCode = OpCodes.Brtrue;
-            else if (i.OpCode == OpCodes.Brfalse_S) i.OpCode = OpCodes.Brfalse;
-            else if (i.OpCode == OpCodes.Beq_S) i.OpCode = OpCodes.Beq;
-            else if (i.OpCode == OpCodes.Bne_Un_S) i.OpCode = OpCodes.Bne_Un;
-        }
-    }
-    static void ConfigureRuntime(ModuleDefinition module, TypeDefinition type, string name, Dictionary<string, int> counts, byte[] runtime) {
-        using (var support = AssemblyDefinition.ReadAssembly(new MemoryStream(runtime))) {
-            var helper = support.MainModule.GetType("AnnouncerRuntime.Support");
-            Func<string, MethodReference> import = n => module.ImportReference(helper.Methods.Single(m => m.Name == n));
-            var audioPath = type.Methods.Single(m => m.Name == "AudioPath");
-            audioPath.Body = new Mono.Cecil.Cil.MethodBody(audioPath);
-            var ip = audioPath.Body.GetILProcessor(); ip.Emit(OpCodes.Ldarg_0); ip.Emit(OpCodes.Call, import("AudioPath")); ip.Emit(OpCodes.Ret);
-            var oldPlay = (MethodReference)type.Methods.Single(m => m.Name == "Player_WallJump").Body.Instructions.First(i => i.OpCode == OpCodes.Call && ((MethodReference)i.Operand).Name == "Play").Operand;
-            var safe = new MethodDefinition("PlayOptional", Mono.Cecil.MethodAttributes.Private | Mono.Cecil.MethodAttributes.Static, oldPlay.ReturnType);
-            safe.Parameters.Add(new ParameterDefinition("path", Mono.Cecil.ParameterAttributes.None, module.TypeSystem.String)); type.Methods.Add(safe);
-            var skip = Instruction.Create(OpCodes.Ldnull); var sp = safe.Body.GetILProcessor();
-            sp.Emit(OpCodes.Call, type.Methods.Single(m => m.Name == "get_Settings"));
-            sp.Emit(OpCodes.Callvirt, module.Types.Single(t => t.Name == "TechAnnouncerModuleSettings").Methods.Single(m => m.Name == "get_Enabled")); sp.Emit(OpCodes.Brfalse, skip);
-            sp.Emit(OpCodes.Ldarg_0); sp.Emit(OpCodes.Brfalse, skip); sp.Emit(OpCodes.Ldarg_0); sp.Emit(OpCodes.Call, oldPlay); sp.Emit(OpCodes.Ret); sp.Append(skip); sp.Emit(OpCodes.Ret);
-            foreach (var t in module.GetTypes()) foreach (var method in t.Methods.Where(m => m.HasBody && m != safe))
-                foreach (var instruction in method.Body.Instructions)
-                    if (instruction.OpCode == OpCodes.Call && instruction.Operand is MethodReference && ((MethodReference)instruction.Operand).FullName == oldPlay.FullName) instruction.Operand = safe;
-            var callback = new MethodDefinition("AnnounceEvent", Mono.Cecil.MethodAttributes.Private | Mono.Cecil.MethodAttributes.Static, module.TypeSystem.Void);
-            callback.Parameters.Add(new ParameterDefinition("key", Mono.Cecil.ParameterAttributes.None, module.TypeSystem.String)); type.Methods.Add(callback);
-            var cp = callback.Body.GetILProcessor(); cp.Emit(OpCodes.Ldarg_0); cp.Emit(OpCodes.Call, audioPath); cp.Emit(OpCodes.Call, safe); cp.Emit(OpCodes.Pop); cp.Emit(OpCodes.Ret);
-            var load = type.Methods.Single(m => m.Name == "Load"); var lp = load.Body.GetILProcessor(); var anchor = load.Body.Instructions[0];
-            var action = module.ImportReference(typeof(Action<string>).GetConstructor(new[] { typeof(object), typeof(IntPtr) }));
-            var setup = new[] { Instruction.Create(OpCodes.Ldstr, name.ToLowerInvariant()), Instruction.Create(OpCodes.Ldstr, String.Join(";", counts.Select(p => p.Key + "=" + p.Value))), Instruction.Create(OpCodes.Ldnull), Instruction.Create(OpCodes.Ldftn, callback), Instruction.Create(OpCodes.Newobj, action), Instruction.Create(OpCodes.Call, import("Configure")), Instruction.Create(OpCodes.Call, import("Load")) };
-            foreach (var instruction in setup) lp.InsertBefore(anchor, instruction);
-            var unload = type.Methods.Single(m => m.Name == "Unload"); unload.Body.GetILProcessor().InsertBefore(unload.Body.Instructions[0], Instruction.Create(OpCodes.Call, import("Unload")));
-        }
-    }
-    public static byte[] CreateDetector(string name, Dictionary<string, int> counts, byte[] runtime) {
-        using (var assembly = AssemblyDefinition.ReadAssembly(new MemoryStream(Resource("template.detector")))) {
-            var module = assembly.MainModule; var type = module.Types.Single(t => t.Name == "TechAnnouncerModule");
-            Func<string, MethodDefinition> method = n => type.Methods.Single(m => m.Name == n);
-            var wall = method("Player_WallJump"); var precision = method("Player_CorrectDashPrecision"); var dash = method("Player_CallDashEvents");
-            var player = (TypeReference)wall.Parameters[1].ParameterType;
-            var originalInvoke = (MethodReference)precision.Body.Instructions.First(i => i.OpCode == OpCodes.Callvirt && ((MethodReference)i.Operand).Name == "Invoke").Operand;
-            precision.Body = new Mono.Cecil.Cil.MethodBody(precision);
-            var pp = precision.Body.GetILProcessor(); pp.Append(Instruction.Create(OpCodes.Ldarg_0)); pp.Append(Instruction.Create(OpCodes.Ldarg_1)); pp.Append(Instruction.Create(OpCodes.Ldarg_2)); pp.Append(Instruction.Create(OpCodes.Callvirt, originalInvoke)); pp.Append(Instruction.Create(OpCodes.Ret));
-            var settingsType = module.Types.Single(t => t.Name == "TechAnnouncerModuleSettings");
-            var settings = method("get_Settings"); var enabled = settingsType.Methods.Single(m => m.Name == "get_Enabled"); var announceDemo = settingsType.Methods.Single(m => m.Name == "get_AnnounceDemodash");
-            var duck = new MethodReference("get_Ducking", module.TypeSystem.Boolean, player) { HasThis = true };
-            var demoFlag = new FieldReference("demoDashed", module.TypeSystem.Boolean, player);
-            var vector = module.GetTypeReferences().First(t => t.FullName == "Microsoft.Xna.Framework.Vector2");
-            var dashDir = new FieldReference("DashDir", vector, player); var x = new FieldReference("X", module.TypeSystem.Single, vector); var y = new FieldReference("Y", module.TypeSystem.Single, vector);
-            var play = (MethodReference)wall.Body.Instructions.First(i => i.OpCode == OpCodes.Call && ((MethodReference)i.Operand).Name == "Play").Operand;
-            // Existing calledDashEvents guard ensures one announcement for each dash.
-            var anchor = dash.Body.Instructions[3]; var ducked = Instruction.Create(OpCodes.Ldarg_1);
-            var added = new[] {
-                Instruction.Create(OpCodes.Call, settings), Instruction.Create(OpCodes.Callvirt, enabled), Instruction.Create(OpCodes.Brfalse, anchor),
-                Instruction.Create(OpCodes.Call, settings), Instruction.Create(OpCodes.Callvirt, announceDemo), Instruction.Create(OpCodes.Brfalse, anchor),
-                Instruction.Create(OpCodes.Ldarg_1), Instruction.Create(OpCodes.Ldfld, demoFlag), Instruction.Create(OpCodes.Brtrue, ducked),
-                Instruction.Create(OpCodes.Ldarg_1), Instruction.Create(OpCodes.Callvirt, duck), Instruction.Create(OpCodes.Brfalse, anchor),
-                ducked, Instruction.Create(OpCodes.Ldflda, dashDir), Instruction.Create(OpCodes.Ldfld, x), Instruction.Create(OpCodes.Ldc_R4, 0F), Instruction.Create(OpCodes.Beq, anchor),
-                Instruction.Create(OpCodes.Ldarg_1), Instruction.Create(OpCodes.Ldflda, dashDir), Instruction.Create(OpCodes.Ldfld, y), Instruction.Create(OpCodes.Ldc_R4, 0F), Instruction.Create(OpCodes.Bne_Un, anchor),
-                Instruction.Create(OpCodes.Ldstr, "demodash"), Instruction.Create(OpCodes.Call, method("AudioPath")), Instruction.Create(OpCodes.Call, play), Instruction.Create(OpCodes.Pop)
-            };
-            foreach (var i in added) dash.Body.GetILProcessor().InsertBefore(anchor, i);
-            LongBranches(dash);
-            foreach (var t in module.GetTypes()) {
-                foreach (var m in t.Methods.Where(m => m.HasBody)) foreach (var i in m.Body.Instructions.Where(i => i.OpCode == OpCodes.Ldstr)) {
-                    string s = (string)i.Operand; if (s == "JeffSteitzer" || s == "TechAnnouncer") i.Operand = name; else if (s == "TechAnnouncerConfig") i.Operand = name + "Config";
-                }
-            }
-            ConfigureRuntime(module, type, name, counts, runtime);
-            string ns = "Celeste.Mod.GeneratedAnnouncer." + name.Replace('-', '_');
-            foreach (var t in module.GetTypeReferences()) if (t.Namespace == "Celeste.Mod.TechAnnouncer") t.Namespace = ns;
-            foreach (var t in module.GetTypes()) if (t.Namespace == "Celeste.Mod.TechAnnouncer") t.Namespace = ns;
-            assembly.Name.Name = name; assembly.Name.Version = new Version(1, 2, 0, 0); module.Name = name + ".dll"; module.Mvid = Unique(new Guid("6ecb33b7-2c51-466a-bf8e-42d0938f2347"), name.ToLowerInvariant());
-            using (var output = new MemoryStream()) { assembly.Write(output); return output.ToArray(); }
-        }
-    }
+
 }
 
 public class MainWindow : Form {

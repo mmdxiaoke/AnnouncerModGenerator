@@ -1,4 +1,4 @@
-﻿param([string]$TemplateZip, [string]$CecilPath)
+﻿param([string]$CecilPath)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskDist = Join-Path $taskRoot 'dist'
@@ -41,23 +41,13 @@ try {
     # Compile only original API declarations; no game files are bundled or needed.
     & $taskCompiler /nologo /target:library /out:dependencies\FNA.dll tests\stubs\FNA.cs
     if ($LASTEXITCODE -ne 0) { throw 'API declaration compilation failed.' }
-    & $taskCompiler /nologo /target:library /out:dependencies\Celeste.dll tests\stubs\Celeste.cs
+    & $taskCompiler /nologo /target:library /out:dependencies\Celeste.dll /reference:dependencies\FNA.dll tests\stubs\Celeste.cs
     if ($LASTEXITCODE -ne 0) { throw 'API declaration compilation failed.' }
     & $taskCompiler /nologo /target:library /out:dependencies\MMHOOK_Celeste.dll /reference:dependencies\Celeste.dll /reference:dependencies\FNA.dll tests\stubs\MMHOOK_Celeste.cs
     if ($LASTEXITCODE -ne 0) { throw 'Hook declaration compilation failed.' }
-    & $taskCompiler /nologo /target:library /optimize+ /out:dependencies\AnnouncerRuntime.dll /reference:dependencies\Celeste.dll /reference:dependencies\FNA.dll /reference:dependencies\MMHOOK_Celeste.dll src\RuntimeSupport.cs
+    & $taskCompiler /nologo /target:library /optimize+ /out:dependencies\AnnouncerRuntime.dll /reference:dependencies\Celeste.dll /reference:dependencies\FNA.dll /reference:dependencies\MMHOOK_Celeste.dll src\IndependentAnnouncer.cs
     if ($LASTEXITCODE -ne 0) { throw 'Runtime compilation failed.' }
     & $taskCompiler /nologo /target:winexe /platform:anycpu /optimize+ '/out:dist\AnnouncerMod生成器.exe' /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll /reference:System.Web.Extensions.dll '/reference:dist\Mono.Cecil.dll' /resource:dependencies\AnnouncerRuntime.dll,runtime.support 'src\AnnouncerBuilder.cs'
     if ($LASTEXITCODE -ne 0) { throw 'Compilation failed.' }
 } finally { Pop-Location }
-if ($TemplateZip) {
-    $taskTemplate = (Resolve-Path -LiteralPath $TemplateZip).Path
-    $taskZip = [IO.Compression.ZipFile]::OpenRead($taskTemplate)
-    try {
-        foreach ($taskRequired in @('Audio/TechAnnouncer.bank','Audio/TechAnnouncer.guids.txt','bin/TechAnnouncer.dll')) {
-            if (-not $taskZip.GetEntry($taskRequired)) { throw "Template missing: $taskRequired" }
-        }
-    } finally { $taskZip.Dispose() }
-    Copy-Item -LiteralPath $taskTemplate -Destination (Join-Path $taskDist 'TechAnnouncer.zip') -Force
-}
 Write-Output "Built successfully: $taskDist"

@@ -8,12 +8,12 @@ Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独
 
 ## 使用
 
-1. 从本仓库的 Releases 下载 **v1.2.0 或更新版本**的工具 ZIP 并解压。
-2. 自行取得有权使用的 `TechAnnouncer.zip`，放在程序旁边；从 [FFmpeg 官方下载页](https://ffmpeg.org/download.html) 选择 Windows 构建，将解压后的 `ffmpeg.exe` 放在程序旁边，也可以在界面中指定路径。
+1. 从本仓库的 Releases 下载 **v1.3.0 或更新版本**的工具 ZIP 并解压。
+2. 从 [FFmpeg 官方下载页](https://ffmpeg.org/download.html) 选择 Windows 构建，将解压后的 `ffmpeg.exe` 放在程序旁边，也可以在界面中指定路径。
 3. 双击 `AnnouncerMod生成器.exe`，点击所需项目旁的“管理…”，添加、移除或清空音频。列表可向下滚动查看死亡和草莓项目。填写语音包名字，点击“生成 Mod ZIP”。
-4. 将生成的 ZIP 放入蔚蓝 `Mods` 文件夹。在 Mod 选项中开启你填写的名字对应的 **Enabled**；关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报的 Enabled，避免重复播报。
+4. 将生成的 ZIP 放入蔚蓝 `Mods` 文件夹。在 Mod 选项中开启你填写的名字对应的 **Enabled**，可用 **Volume（0–10）** 调节播报音量；关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报的 Enabled，避免重复播报。
 
-**下载包不包含 TechAnnouncer 模板和 FFmpeg。** 保留程序旁边的 `Mono.Cecil.dll`，并自行准备上述依赖。此前包含依赖的 v1.1.1 已撤回。
+**v1.3.0 起完全不需要模板。** 保留程序旁边的 `Mono.Cecil.dll`。FFmpeg 只用于生成时转换音频，由用户自行安装，下载包不包含其二进制。
 
 名字以英文字母开头，长度 3–64 位，可使用英文、数字、下划线和短横线。同一项目内不能重复添加同一文件，不同项目可以共用音频。每条音频长 0.01–30 秒，不能是全静音。支持 MP3、WAV、OGG、FLAC、M4A、AAC、WMA、OPUS、AIFF。生成的 Mod 不需要 FFmpeg，也不依赖另装 TechAnnouncer。全部留空也可以生成静音模组，此时不需要 FFmpeg。
 
@@ -39,11 +39,13 @@ Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独
 
 带金草莓死亡仅触发 `goldendeath`，不会额外触发普通死亡；金草莓收集仅触发 `goldenstrawberry`。对应项目留空时保持静音，不回退到普通事件。收集指草莓被正式吃掉，不是刚碰到并开始跟随；同一草莓不会重复播报。无敌状态下未实际死亡也不会播报。支持原版 `Strawberry` 及其子类，另有自定义收集机制的模组草莓不保证适用。
 
-## 本版本的判定修改
+## v1.3.0：无需模板
 
-以用户提供的 TechAnnouncer 1.0.1 为模板。在实际冲刺事件中识别专用 Demo 键及手动水平蹲冲，处理原版 Demo Dash 漏播；同一次冲刺不会重复播报。Neutral Jump 保留原逻辑。语音长度根据输入调整，并处理 Ultra 模板的分段播放。
+生成器内置本项目自行编写的播报运行程序，将音频转换为 PCM WAV，嵌入一个模块 DLL，和 Everest 清单一起打包。运行时监听冲刺、跳跃、碰撞、死亡和草莓收集，使用游戏已有的 FMOD Core 直接播放 WAV。生成过程不读取 TechAnnouncer，不修改第三方 DLL，不制作 `.bank` 或 `.guids.txt`。
 
-每个生成的 Mod 都有自己的程序集身份、配置和音频 GUID。素材没有 farewell 时，该额外事件保持静音。工具直接重建 FMOD 音频库，不生成可编辑的 `.fspro` 工程。
+各语音包使用独立的程序集身份、设置和音频缓存。播放沿用游戏音效总线，最多同时播放八条；禁用和卸载会停止并释放音频。检测规则与旧模板不保证完全一致，具体依据、特殊模组兼容范围见 [独立运行原理](docs/independent-runtime.md)。
+
+**旧版已生成的 Mod 不会自动升级。** 请重新生成并替换同名 ZIP，然后重启游戏。
 
 ## 从源码编译
 
@@ -53,13 +55,9 @@ Windows 自带的 .NET Framework 编译器即可编译，不需要安装 Python�
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
-脚本从 NuGet 官方源下载固定版本的 Mono.Cecil，并检查包的 SHA-256，输出到 `dist`。默认仅编译生成器，不下载或内置模板及 FFmpeg。可为本地使用指定自行准备的模板：
+脚本从 NuGet 官方源下载固定版本的 Mono.Cecil，并检查包的 SHA-256，输出到 `dist`。离线编译可通过 `-CecilPath` 指定已有的 Mono.Cecil 0.10.4 DLL。独立运行程序使用本项目编写的最小 API 声明编译，无需游戏文件；这些声明只是构建/测试辅助，不会放入下载包或生成的 Mod。
 
-```powershell
-.\scripts\build.ps1 -TemplateZip 'D:\素材\TechAnnouncer.zip'
-```
-
-离线编译可通过 `-CecilPath` 指定已有的 Mono.Cecil 0.10.4 DLL。运行时辅助代码使用本项目编写的最小 API 声明编译，无需游戏文件；生成模组包含独立命名的运行时 DLL。`scripts/package.ps1` 将程序、Mono.Cecil、使用说明及许可打包为 v1.2.0 下载包；即使本地 `dist` 存在模板、FFmpeg 或用户音频，打包也不会包含它们。
+`scripts/package.ps1` 将程序、Mono.Cecil、使用说明及许可打包为 v1.3.0 下载包。脚本按文件清单打包，即使本地 `dist` 存在模板、FFmpeg、游戏 DLL 或用户音频，也不会包含它们。
 
 ## 命令行
 
@@ -82,13 +80,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 
 ## 验证
 
-已对九条原始音频和九条约 4–7 秒长音频使用蔚蓝的 FMOD 1.10.20 引擎播放比对，检查播放完整性和多个音频包同时加载的独立性；完成 11 项生成后判定检查，以及错误输入、输出覆盖保护和界面检查。记录见 [验证报告](docs/validation-report.json)。
+v1.3.0 已检查独立运行程序的全部 13 类事件、Demo Dash 重复回调、定向蹬墙跳、金草莓分类、收集去重、五条随机语音、禁用/音量设置、八条并发上限、缓存和卸载。检查生成程序引用的游戏接口，并用蔚蓝自带的 FMOD 1.10.20 将全部 65 个音频位置逐一播放到游戏音效总线，包括六秒长音频，比较完整波形。报告见 [v1.3.0 验证记录](docs/independent-validation.json)。
 
-v1.2.0 另行验证全部 13 × 5 个音频位置在 FMOD 1.10.20 中同时加载后播放，测试可选输入、上限和错误输入，以及死亡/草莓 Hook 分类、重复触发保护和卸载。记录见 [新版验证报告](docs/optional-validation.json)。11 项 Demo Dash / Neutral 判定回归测试也保留。
+这些检查没有进行游戏内实际操作。技巧判定仍需要在游戏中复测，尤其抓角、Ultra、变体和其他修改玩家行为的模组。
 
-这些验证没有进行游戏内实际操作，新事件和 Demo Dash 仍需在游戏中复测。
-
-集成测试需要 Python、NumPy、本地蔚蓝游戏和自备模板。测试自行生成短测试音频，不会下载游戏资源。先将模板放到 `dist/TechAnnouncer.zip`，并指定自行安装的 FFmpeg：
+集成测试需要 Python、NumPy、本地蔚蓝游戏和 FFmpeg；无需模板。测试自动制作测试音频，不下载或分发游戏资源：
 
 ```powershell
 $env:CELESTE_DIR = 'D:\Steam\steamapps\common\Celeste'
@@ -96,22 +92,19 @@ $env:FFMPEG_PATH = 'D:\工具\ffmpeg.exe'
 python .\tests\test_generator.py
 ```
 
-测试生成的临时文件会自动清理，构建和测试产物由 Git 忽略。
-
-下载包验证检查模板和 FFmpeg 未被打包，并用本地自备依赖及九条音频检查生成功能：
+下载包验证：先运行 `scripts/package.ps1`，然后指定含有九项匹配文件名的测试音频文件夹。测试在干净解压目录中生成模组，不放入任何模板；也验证全部留空时不需要 FFmpeg。
 
 ```powershell
-$env:ANNOUNCER_TEMPLATE_ZIP = 'D:\素材\TechAnnouncer.zip'
 $env:ANNOUNCER_AUDIO_DIR = 'D:\九条测试音频'
 python .\tests\test_distribution.py
 ```
 
+测试产生的临时文件自动清理。历史版本记录 [v1.1 验证](docs/validation-report.json) 和 [v1.2 验证](docs/optional-validation.json) 仅对应旧版实现。
+
 ## 来源与许可
 
-本仓库的生成器代码按 MIT 许可发布。TechAnnouncer 原有程序和声音不属于该 MIT 许可，本仓库及下载包不分发模板。请自行确认所用模板及音频的使用、修改和再分发授权；生成工具不授予这些素材的权利。FFmpeg 由用户自行安装，以独立进程执行，本仓库及下载包不分发其二进制。
+本项目自行编写的生成器和运行程序按 MIT 许可发布。v1.3.0 不依赖或分发 TechAnnouncer 模板、检测程序及音频库。游戏、Everest、FNA 和 FMOD 由用户已有的游戏安装提供，本项目不分发其程序。用户必须有权使用和再分发所选音频，本工具不授予素材使用权。
 
-- [制作教程](https://www.bilibili.com/opus/1033106442681319432)
-- 技巧检测与模板：Brokemia 的 TechAnnouncer 1.0.1。
-- 程序集编辑：[Mono.Cecil](https://github.com/jbevain/cecil)，MIT 许可。完整声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。
-- [FFmpeg 官方下载来源](https://ffmpeg.org/download.html)。Windows 二进制构建由该页面列出的第三方提供，适用许可请以所选构建说明为准。
-
+- [最初参考的制作教程](https://www.bilibili.com/opus/1033106442681319432)。新版使用独立检测和直接 WAV 播放，生成方式与教程不同。
+- 程序集资源打包：[Mono.Cecil](https://github.com/jbevain/cecil)，MIT 许可。完整声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。
+- [FFmpeg 官方下载来源](https://ffmpeg.org/download.html)。转换器由用户自行安装，通过独立进程调用；本项目仅提供官方来源链接，不捆绑其二进制。
