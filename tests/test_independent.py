@@ -61,6 +61,7 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
         assert set(archive.namelist()) == {'everest.yaml','bin/FullIndependent.dll','README.txt','build-info.json'}
         info=json.loads(archive.read('build-info.json'))
         assert info['runtime']=='IndependentAnnouncer' and all(v==5 for v in info['counts'].values())
+        assert info['version']=='1.4.2'
         assert info['volumes']['death']==70 and info['volumes']['ultradash']==40 and info['volumes']['fastbubble']==60
         assert info['volumes']['demodash']==100
         archive.extract('bin/FullIndependent.dll',target)
@@ -145,6 +146,6 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
                 checked.append({'event':event,'variant':variant,'seconds':len(expected)/48000,'correlation':score})
             print('FMOD direct WAV:',event,'5/5',flush=True)
     finally: os.chdir(previous)
-    (repo/'docs/v1.4.1-validation.json').write_text(json.dumps({'version':'1.4.1','runtime_hooks':'passed','ultra_regressions':'24 consecutive waves, post-dash 1.2x landing followed by normal/super jump, one announcement, invalid multipliers and stale landing cancellation passed','bubble_regressions':'manual green and red exits, duplicate guard passed','event_volumes':'13 controls, defaults, live changes, mute and master multiplication passed','game_api_members':'92 verified', 'runtime_checks':int(runtime.stdout.strip().split()[-1]),
+    Path(os.environ.get('ANNOUNCER_VALIDATION_REPORT', str(repo/'docs/v1.4.2-validation.json'))).write_text(json.dumps({'version':'1.4.2','runtime_hooks':'passed','ultra_regressions':'24 consecutive waves, post-dash 1.2x landing followed by normal/super jump, one announcement, invalid multipliers, stale landing cancellation, coyote jumps in both directions and grace expiration, strict pre-jump speed magnitude >240 boundaries and vertical component passed','bubble_regressions':'manual green and red exits, duplicate guard passed','event_volumes':'13 controls, defaults, live changes, mute and master multiplication passed','game_api_members':'92 verified', 'runtime_checks':int(runtime.stdout.strip().split()[-1]),
         'template_required':False,'fmod_version':'1.10.20','clips':checked,'gameplay_tested':False},indent=2),encoding='utf-8')
 print('PASS: template-free generation, runtime hooks, inputs, 65 direct WAV clips through gameplay SFX bus.')

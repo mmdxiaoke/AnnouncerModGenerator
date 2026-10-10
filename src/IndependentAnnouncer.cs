@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -211,6 +211,11 @@ public sealed class AnnouncerModule : EverestModule {
     static bool KeepsUltraSpeed(Player self, Dash dash) {
         return Math.Sign(self.Speed.X) == dash.UltraDirection && Math.Abs(self.Speed.X) >= dash.UltraSpeed / 1.2f - .01f;
     }
+    static bool HasGroundJumpWindow(Player self) {
+        // Use the game's current coyote timer instead of inventing another
+        // window: a player can still ground-jump after leaving the ledge.
+        return Field(self, "onGround", false) || Field(self, "jumpGraceTimer", 0f) > 0;
+    }
     void CancelUltra(Player self) {
         Dash dash;
         if (dashes.TryGetValue(self, out dash)) { dash.PendingUltra = false; dash.Fresh = false; }
@@ -223,7 +228,7 @@ public sealed class AnnouncerModule : EverestModule {
             // the Update that ran the landing callback. Allow that frame only.
             bool landed = dash.LandedThisUpdate; dash.LandedThisUpdate = false;
             if (self.Dead || self.StateMachine.State != 0 || !KeepsUltraSpeed(self, dash) || self.Speed.Y < -.01f ||
-                (!landed && !Field(self, "onGround", false))) dash.PendingUltra = false;
+                (!landed && !HasGroundJumpWindow(self))) dash.PendingUltra = false;
         }
         Refresh();
     }
@@ -250,8 +255,11 @@ public sealed class AnnouncerModule : EverestModule {
     }
     static bool TakeUltra(Player self, Dash dash) {
         if (dash == null) return false;
+        // Match TechAnnouncer's strict pre-jump Speed.LengthSquared() > 57600.
+        // Include vertical speed during coyote time; do not count jump acceleration.
         bool ultra = dash.PendingUltra && !self.Dead && self.StateMachine.State == 0 &&
-            Math.Abs(self.Speed.Y) < .01f && KeepsUltraSpeed(self, dash);
+            HasGroundJumpWindow(self) && KeepsUltraSpeed(self, dash) &&
+            self.Speed.X * self.Speed.X + self.Speed.Y * self.Speed.Y > 240f * 240f;
         // Consume before orig to prevent nested hooks or later jumps replaying it.
         dash.PendingUltra = false; dash.Fresh = false;
         return ultra;

@@ -14,6 +14,7 @@ namespace Celeste {
  public class Follower:Monocle.Component { public Leader Leader; }
  public class Player:Monocle.Entity {
   public Leader Leader=new Leader(); public bool Dead { get; set; } public bool Ducking { get; set; }
+  public float jumpGraceTimer;
   public Vector2 Speed,DashDir,lastAim; public Facings Facing=Facings.Right;
   public Monocle.StateMachine StateMachine=new Monocle.StateMachine();
   public bool onGround,dashStartedOnGround,calledDashEvents,demoDashed,boostRed;

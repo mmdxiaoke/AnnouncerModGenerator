@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.IO;
 using System.Reflection;
@@ -9,14 +9,14 @@ using Microsoft.Xna.Framework;
 class IndependentRuntimeTest {
  static EverestModule module; static FMOD.System core; static object settings; static int checks;
  static Dictionary<string, string> labels = new Dictionary<string, string>();
- static void Assert(bool ok, string why) { checks++; if(!ok) throw new Exception(why); }
+ static void Assert(bool ok, string why) { checks++; if(!ok) { Console.Error.WriteLine("FAIL: "+why);throw new Exception(why); } }
  static string Signature(byte[] bytes) { return Convert.ToBase64String(bytes); }
  static string Last() { return labels[Signature(core.Channels[core.Channels.Count-1].Sound.Bytes)]; }
  static void Expect(string key, Action action) { int before=core.Channels.Count; action(); Assert(core.Channels.Count==before+1,key+" count"); Assert(Last().StartsWith(key+".v"),key+" classification: "+Last()); }
  static void Silent(Action action) { int before=core.Channels.Count; action(); Assert(core.Channels.Count==before,"unexpected audio"); }
  static Player New() { return new Player(); }
  static void Dash(Player p, Vector2 direction, bool ground) { p.DashDir=direction; p.lastAim=direction; p.dashStartedOnGround=ground; p.calledDashEvents=false; On.Celeste.Player.TestCallDashEvents(delegate(Player x) { x.calledDashEvents=true; },p); }
- static void Jump(Player p) { On.Celeste.Player.TestSuperJump(delegate(Player x) { x.Ducking=false; x.Speed.Y=-105; },p); }
+ static void Jump(Player p) { On.Celeste.Player.TestSuperJump(delegate(Player x) { x.Ducking=false; x.Speed.Y=-105;x.jumpGraceTimer=0; },p); }
  static IEnumerator GroundDash(Player p) {
   yield return "freeze";
   p.Speed=new Vector2(300,170); Dash(p,new Vector2(.707f,.707f),true);
@@ -28,7 +28,7 @@ class IndependentRuntimeTest {
  }
  static void NormalJump(Player p) {
   int calls=0;
-  On.Celeste.Player.TestJump(delegate(Player x,bool particles,bool sfx) { calls++;Assert(!particles && sfx,"original jump flags");x.Speed.Y=-105;x.onGround=false; },p,false,true);
+  On.Celeste.Player.TestJump(delegate(Player x,bool particles,bool sfx) { calls++;Assert(!particles && sfx,"original jump flags");x.Speed.Y=-105;x.onGround=false;x.jumpGraceTimer=0; },p,false,true);
   Assert(calls==1,"original normal jump once");
  }
  static PlayerDeadBody Kill(Player p) { return On.Celeste.Player.TestDie(delegate(Player x,Vector2 d,bool a,bool b) { x.Leader.Followers.Clear(); x.Dead=true; return new PlayerDeadBody(); },p,new Vector2(),false,true); }
@@ -78,9 +78,37 @@ class IndependentRuntimeTest {
    Expect("ultradash",delegate { if(super) Jump(p);else NormalJump(p); });
    Silent(delegate { NormalJump(p); });
   }
-  // No minimum carried-speed heuristic: verify the actual multiplier.
+  // A real landing multiplier alone is insufficient below TechAnnouncer's threshold.
   p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(120,80);
-  Silent(delegate { Land(p,1.2f); });Expect("ultradash",delegate { NormalJump(p); });
+  Silent(delegate { Land(p,1.2f);NormalJump(p); });
+  // Check the strict pre-jump boundary in both directions and both jump hooks.
+  // Set the exact test velocity after landing to avoid multiplier rounding.
+  foreach(int direction in new[] { -1,1 }) foreach(bool super in new[] { false,true }) foreach(float speed in new[] { 239.99f,240f,240.01f }) {
+   p=New();Dash(p,new Vector2(direction*.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(direction*200,170);
+   Silent(delegate { Land(p,1.2f); });p.Speed=new Vector2(direction*speed,0);
+   if(speed>240f) Expect("ultradash",delegate { if(super) Jump(p);else NormalJump(p); });
+   else if(super) Expect("wavedash",delegate { Jump(p); });
+   else Silent(delegate { NormalJump(p); });
+   Silent(delegate { NormalJump(p); });
+  }
+  // Coyote time uses vector magnitude, including downward vertical velocity.
+  // 230 horizontal with 80 vertical exceeds 240; with 60 vertical it does not.
+  foreach(int direction in new[] { -1,1 }) foreach(bool super in new[] { false,true }) foreach(float vertical in new[] { 60f,80f }) {
+   p=New();Dash(p,new Vector2(direction*.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(direction*200,170);
+   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { Land(x,1.2f); },p); });
+   p.onGround=false;p.jumpGraceTimer=.02f;p.Speed=new Vector2(direction*230,vertical);
+   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { },p); });
+   if(vertical==80f) Expect("ultradash",delegate { if(super) Jump(p);else NormalJump(p); });
+   else if(super) Expect("wavedash",delegate { Jump(p); });
+   else Silent(delegate { NormalJump(p); });
+   Silent(delegate { NormalJump(p); });
+  }
+  // The original jump raises magnitude past 240, but pre-jump speed was only 230.
+  // Checking after the original method would incorrectly announce this jump.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(200,170);
+  Silent(delegate { Land(p,1.2f); });p.Speed=new Vector2(230,0);
+  Silent(delegate { NormalJump(p); });
+  Assert(p.Speed.X*p.Speed.X+p.Speed.Y*p.Speed.Y>57600f,"post-jump speed exceeds threshold without Ultra");
   foreach(float multiplier in new[] { 1f,1.11f,1.19f,1.21f,1.3f }) {
    p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
    Silent(delegate { Land(p,multiplier);NormalJump(p); });
@@ -130,6 +158,53 @@ class IndependentRuntimeTest {
   p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { Land(x,1.2f);x.onGround=false; },p); });
   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { },p);p.onGround=true;NormalJump(p); });
+  // Coyote time preserves a confirmed Ultra through multiple airborne frames.
+  // Use the game's remaining grace value, including the last positive instant,
+  // rather than a hard-coded duration or zero vertical-speed requirement.
+  foreach(int direction in new[] { -1,1 }) foreach(bool super in new[] { false,true }) foreach(float grace in new[] { .06f,.02f,.0001f }) {
+   p=New();Dash(p,new Vector2(direction*.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(direction*300,170);
+   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { Land(x,1.2f); },p); });
+   p.onGround=false;p.jumpGraceTimer=.08f;p.Speed.Y=5;
+   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { },p); });
+   p.jumpGraceTimer=grace;p.Speed=new Vector2(direction*340,25);
+   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { },p); });
+   Expect("ultradash",delegate { if(super) Jump(p);else NormalJump(p); });
+   Silent(delegate { NormalJump(p); });
+  }
+  // Once grace expires, even a later grace reset cannot resurrect that landing.
+  foreach(float grace in new[] { 0f,-.001f }) {
+   p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
+   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { Land(x,1.2f); },p); });
+   p.onGround=false;p.jumpGraceTimer=grace;p.Speed.Y=20;
+   Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { },p);p.jumpGraceTimer=.08f;NormalJump(p); });
+  }
+  // Grace expiring during the game Update also invalidates the pending landing.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);
+  Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { Land(x,1.2f); },p); });
+  p.onGround=false;p.jumpGraceTimer=.001f;p.Speed.Y=20;
+  Silent(delegate { On.Celeste.Player.TestUpdate(delegate(Player x) { x.jumpGraceTimer=0; },p);NormalJump(p); });
+  // A forged airborne jump outside grace cannot announce even before Update.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);Silent(delegate { Land(p,1.2f); });
+  p.onGround=false;p.jumpGraceTimer=0;p.Speed.Y=0;Silent(delegate { NormalJump(p); });
+  // Grace alone cannot establish Ultra without the actual post-dash landing.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.onGround=false;p.jumpGraceTimer=.08f;p.Speed=new Vector2(360,20);
+  Silent(delegate { NormalJump(p); });
+  // An ordinary Wave still cannot turn into Ultra through a coyote-time jump.
+  p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=2;p.Speed=new Vector2(300,170);Silent(delegate { Land(p,1.2f); });
+  Expect("wavedash",delegate { Jump(p); });p.StateMachine.State=0;p.onGround=false;p.jumpGraceTimer=.08f;p.Speed.Y=20;
+  Silent(delegate { NormalJump(p); });
+  // Interrupted and unsuccessful coyote jumps must not replay on a later jump.
+  for(int cancel=0;cancel<3;cancel++) {
+   p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,170);Silent(delegate { Land(p,1.2f); });
+   p.onGround=false;p.jumpGraceTimer=.08f;p.Speed.Y=20;
+   int reason=cancel;
+   Silent(delegate {
+    if(reason==0) On.Celeste.Player.TestJump(delegate(Player x,bool particles,bool sfx) { },p,false,true);
+    if(reason==1) Dash(p,new Vector2(0,-1),false);
+    if(reason==2) { Input.MoveX.Value=1;On.Celeste.Player.TestWallJump(delegate(Player x,int d) { },p,1); }
+    NormalJump(p);
+   });
+  }
   // Upward collision or rebound, and zero speed, cannot establish a landing.
   foreach(float vy in new[] { -170f,0f }) {
    p=New();Dash(p,new Vector2(.707f,.707f),false);p.StateMachine.State=0;p.Speed=new Vector2(300,vy);

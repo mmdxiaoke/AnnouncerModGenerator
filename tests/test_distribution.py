@@ -5,7 +5,7 @@ import json, os, shutil, subprocess, tempfile, zipfile
 repo = Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='distribution-test-', dir=repo/'dist') as temporary:
     target = Path(temporary)
-    with zipfile.ZipFile(repo/'dist/AnnouncerModGenerator-v1.4.1.zip') as archive:
+    with zipfile.ZipFile(Path(os.environ.get('ANNOUNCER_DISTRIBUTION_ZIP',str(repo/'dist/AnnouncerModGenerator-v1.4.2.zip')))) as archive:
         assert archive.testzip() is None
         names = archive.namelist()
         assert not any('techannouncer' in name.lower() or 'ffmpeg' in name.lower() for name in names), names
@@ -26,6 +26,8 @@ with tempfile.TemporaryDirectory(prefix='distribution-test-', dir=repo/'dist') a
         assert len([n for n in archive.namelist() if n.endswith('.dll')]) == 1
         assert not any(n.endswith(('.bank','.guids.txt')) for n in archive.namelist())
         assert json.loads(archive.read('build-info.json'))['runtime'] == 'IndependentAnnouncer'
+        assert json.loads(archive.read('build-info.json'))['version'] == '1.4.2'
+        assert '  Version: 1.4.2\n' in archive.read('everest.yaml').decode('utf-8-sig')
     manifest=target/'empty.json';manifest.write_text('{}',encoding='utf-8')
     result=subprocess.run([str(exe),'--name','EmptyDistribution','--inputs',str(manifest),'--ffmpeg',str(target/'missing.exe'),
         '--output',str(target/'EmptyDistribution.zip')],capture_output=True,encoding='utf-8-sig',timeout=30)

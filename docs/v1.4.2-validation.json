@@ -1,0 +1,412 @@
+{
+  "version": "1.4.2",
+  "runtime_hooks": "passed",
+  "ultra_regressions": "24 consecutive waves, post-dash 1.2x landing followed by normal/super jump, one announcement, invalid multipliers, stale landing cancellation, coyote jumps in both directions and grace expiration, strict pre-jump speed magnitude >240 boundaries and vertical component passed",
+  "bubble_regressions": "manual green and red exits, duplicate guard passed",
+  "event_volumes": "13 controls, defaults, live changes, mute and master multiplication passed",
+  "game_api_members": "92 verified",
+  "runtime_checks": 4759,
+  "template_required": false,
+  "fmod_version": "1.10.20",
+  "clips": [
+    {
+      "event": "cornerboost",
+      "variant": 1,
+      "seconds": 6.0,
+      "correlation": 0.9999626074676684
+    },
+    {
+      "event": "cornerboost",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9999870565045601
+    },
+    {
+      "event": "cornerboost",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999862168503634
+    },
+    {
+      "event": "cornerboost",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9999854039217053
+    },
+    {
+      "event": "cornerboost",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999845795008472
+    },
+    {
+      "event": "demodash",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999828695880199
+    },
+    {
+      "event": "demodash",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.99998197825507
+    },
+    {
+      "event": "demodash",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999810105589505
+    },
+    {
+      "event": "demodash",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9999799866695748
+    },
+    {
+      "event": "demodash",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999789491017669
+    },
+    {
+      "event": "fastbubble",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999770302738167
+    },
+    {
+      "event": "fastbubble",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9999759166280098
+    },
+    {
+      "event": "fastbubble",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999748507500434
+    },
+    {
+      "event": "fastbubble",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9999737638596533
+    },
+    {
+      "event": "fastbubble",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999726103994246
+    },
+    {
+      "event": "hyperdash",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999703982612949
+    },
+    {
+      "event": "hyperdash",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9999691740826762
+    },
+    {
+      "event": "hyperdash",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999678686944455
+    },
+    {
+      "event": "hyperdash",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.999966556346173
+    },
+    {
+      "event": "hyperdash",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999652888184603
+    },
+    {
+      "event": "neutral",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999627666531802
+    },
+    {
+      "event": "neutral",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9999614294337715
+    },
+    {
+      "event": "neutral",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.999960094405979
+    },
+    {
+      "event": "neutral",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9999586700237245
+    },
+    {
+      "event": "neutral",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999571574724578
+    },
+    {
+      "event": "superdash",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999544718895318
+    },
+    {
+      "event": "superdash",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9999528790006723
+    },
+    {
+      "event": "superdash",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999512909967236
+    },
+    {
+      "event": "superdash",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9999497577862183
+    },
+    {
+      "event": "superdash",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999482370857222
+    },
+    {
+      "event": "ultradash",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999451437743127
+    },
+    {
+      "event": "ultradash",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.999943548416493
+    },
+    {
+      "event": "ultradash",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999418568473901
+    },
+    {
+      "event": "ultradash",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9999400759338729
+    },
+    {
+      "event": "ultradash",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999382834331033
+    },
+    {
+      "event": "wallbounce",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999350304589264
+    },
+    {
+      "event": "wallbounce",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9999331839076974
+    },
+    {
+      "event": "wallbounce",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.999931369593854
+    },
+    {
+      "event": "wallbounce",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9999296041685141
+    },
+    {
+      "event": "wallbounce",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999277279354527
+    },
+    {
+      "event": "wavedash",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999241534989529
+    },
+    {
+      "event": "wavedash",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.999922194441107
+    },
+    {
+      "event": "wavedash",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999201345211625
+    },
+    {
+      "event": "wavedash",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.999918062515426
+    },
+    {
+      "event": "wavedash",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9999160775231275
+    },
+    {
+      "event": "death",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9999121974792421
+    },
+    {
+      "event": "death",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9999101348221069
+    },
+    {
+      "event": "death",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9999081062708887
+    },
+    {
+      "event": "death",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.999905966722792
+    },
+    {
+      "event": "death",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.999903673885017
+    },
+    {
+      "event": "goldendeath",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9998996537540908
+    },
+    {
+      "event": "goldendeath",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9998973084642516
+    },
+    {
+      "event": "goldendeath",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9998949649168725
+    },
+    {
+      "event": "goldendeath",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9998927304893973
+    },
+    {
+      "event": "goldendeath",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9998905064652571
+    },
+    {
+      "event": "strawberry",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9998860070376082
+    },
+    {
+      "event": "strawberry",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9998837247884852
+    },
+    {
+      "event": "strawberry",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.999881302853923
+    },
+    {
+      "event": "strawberry",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9998787567459517
+    },
+    {
+      "event": "strawberry",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9998761939578614
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 1,
+      "seconds": 0.3,
+      "correlation": 0.9998716115244392
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 2,
+      "seconds": 0.3,
+      "correlation": 0.9998690101255903
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 3,
+      "seconds": 0.3,
+      "correlation": 0.9998664973511637
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 4,
+      "seconds": 0.3,
+      "correlation": 0.9998640072324403
+    },
+    {
+      "event": "goldenstrawberry",
+      "variant": 5,
+      "seconds": 0.3,
+      "correlation": 0.9998613907157697
+    }
+  ],
+  "gameplay_tested": true,
+  "gameplay_test_source": "user confirmation",
+  "gameplay_feedback": "用户对狼跳帧支持和起跳前速度门槛修改反馈：经测试没问题。",
+  "distribution_test": "passed: extracted v1.4.2 release generates nine-event mod and empty mod; manifest and build-info versions verified",
+  "distribution_asset": {
+    "name": "AnnouncerModGenerator-v1.4.2.zip",
+    "bytes": 189791,
+    "sha256": "08d3de13696a642e2765bb6485fc26363f828d94befe0ad5028e85116e1fd658"
+  }
+}
