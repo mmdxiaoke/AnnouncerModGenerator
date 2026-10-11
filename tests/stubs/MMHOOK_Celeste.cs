@@ -45,6 +45,11 @@ namespace On.Celeste {
   public delegate void hook_BoostBegin(orig_BoostBegin orig,global::Celeste.Player self);
   public static event hook_BoostBegin BoostBegin;
   public static void TestBoostBegin(orig_BoostBegin orig,global::Celeste.Player self) { BoostBegin(orig,self); }
+  public delegate Vector2 orig_CorrectDashPrecision(global::Celeste.Player self,Vector2 direction);
+  public delegate Vector2 hook_CorrectDashPrecision(orig_CorrectDashPrecision orig,global::Celeste.Player self,Vector2 direction);
+  public static event hook_CorrectDashPrecision CorrectDashPrecision;
+  public static Vector2 TestCorrectDashPrecision(orig_CorrectDashPrecision orig,global::Celeste.Player self,Vector2 direction) { return CorrectDashPrecision==null?orig(self,direction):CorrectDashPrecision(orig,self,direction); }
+  public static int TestPrecisionSubscribers { get { return CorrectDashPrecision==null?0:CorrectDashPrecision.GetInvocationList().Length; } }
   public delegate System.Collections.IEnumerator orig_DashCoroutine(global::Celeste.Player self);
   public delegate System.Collections.IEnumerator hook_DashCoroutine(orig_DashCoroutine orig,global::Celeste.Player self);
   public static event hook_DashCoroutine DashCoroutine;

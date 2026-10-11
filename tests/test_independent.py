@@ -1,7 +1,7 @@
 """Template-free generation, all runtime hooks, and real FMOD 1.10 playback."""
 from pathlib import Path
 import ctypes as C
-import io, json, os, subprocess, tempfile, time, wave, zipfile
+import io, json, os, re, subprocess, tempfile, time, wave, zipfile
 import numpy as np
 
 repo = Path(__file__).resolve().parent.parent
@@ -12,8 +12,12 @@ compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/cs
 events = ['cornerboost','demodash','fastbubble','hyperdash','neutral','superdash','ultradash','wallbounce','wavedash','death','goldendeath','strawberry','goldenstrawberry']
 
 def compile_test():
+    result = subprocess.run([str(compiler), '/nologo', '/target:library', '/out:dependencies\\FrostTempleHelper.dll',
+        '/reference:dependencies\\Celeste.dll', '/reference:dependencies\\FNA.dll', '/reference:dependencies\\MonoMod.RuntimeDetour.dll',
+        'tests\\stubs\\FrostHelper.cs'], cwd=repo, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
     result = subprocess.run([str(compiler), '/nologo', '/out:dependencies\\IndependentRuntimeTest.exe',
-        '/reference:dependencies\\Celeste.dll', '/reference:dependencies\\FNA.dll', '/reference:dependencies\\MMHOOK_Celeste.dll',
+        '/reference:dependencies\\Celeste.dll', '/reference:dependencies\\FNA.dll', '/reference:dependencies\\MMHOOK_Celeste.dll', '/reference:dependencies\\MonoMod.RuntimeDetour.dll',
         'tests\\IndependentRuntimeTest.cs'], cwd=repo, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -61,17 +65,30 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
         assert set(archive.namelist()) == {'everest.yaml','bin/FullIndependent.dll','README.txt','build-info.json'}
         info=json.loads(archive.read('build-info.json'))
         assert info['runtime']=='IndependentAnnouncer' and all(v==5 for v in info['counts'].values())
-        assert info['version']=='1.4.2'
+        assert info['version']=='1.4.3'
         assert info['volumes']['death']==70 and info['volumes']['ultradash']==40 and info['volumes']['fastbubble']==60
         assert info['volumes']['demodash']==100
         archive.extract('bin/FullIndependent.dll',target)
     dll = target / 'bin/FullIndependent.dll'
-    runtime = subprocess.run([str(repo/'dependencies/IndependentRuntimeTest.exe'),str(dll)], capture_output=True,encoding='utf-8',errors='replace')
+    runtime = subprocess.run([str(repo/'dependencies/IndependentRuntimeTest.exe'),str(dll),str(repo/'dependencies/FrostTempleHelper.dll')], capture_output=True,encoding='utf-8',errors='replace')
     assert runtime.returncode == 0, runtime.stdout + runtime.stderr
     print(runtime.stdout.strip(),flush=True)
     # Export embedded WAVs and validate external type/member references against installed game.
-    subprocess.run(['powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',str(repo/'tests/validate_independent.ps1'),
-        '-ModulePath',str(dll),'-GamePath',str(game),'-AudioDirectory',str(target/'audio')],check=True)
+    verification = subprocess.run(['powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',str(repo/'tests/validate_independent.ps1'),
+        '-ModulePath',str(dll),'-GamePath',str(game),'-AudioDirectory',str(target/'audio')],capture_output=True,text=True)
+    assert verification.returncode == 0, verification.stdout + verification.stderr
+    print(verification.stdout.strip(),flush=True)
+    api_members = int(re.search(r'verified: (\d+) members', verification.stdout).group(1))
+    # Use an isolated directory so the real native detour library cannot bind to
+    # the unit-test shim beside IndependentRuntimeTest.exe.
+    native = target/'native-hooks'; native.mkdir()
+    native_exe = native/'RealDetourCompatibilityTest.exe'
+    result = subprocess.run([str(compiler),'/nologo','/out:'+str(native_exe),str(repo/'tests/RealDetourCompatibilityTest.cs')],capture_output=True,text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    native_exe.with_suffix('.runtimeconfig.json').write_text(json.dumps({'runtimeOptions':{'tfm':'net8.0','framework':{'name':'Microsoft.NETCore.App','version':'8.0.0'}}}),encoding='utf-8')
+    result = subprocess.run([str(game/'piton-runtime/dotnet.exe'),str(native_exe),str(game)],capture_output=True,text=True,timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    print(result.stdout.strip(),flush=True)
     empty = generate('EmptyIndependent',{},converter=target/'absent.exe')
     with zipfile.ZipFile(empty) as archive:
         assert all(v==0 for v in json.loads(archive.read('build-info.json'))['counts'].values())
@@ -146,6 +163,6 @@ with tempfile.TemporaryDirectory(prefix='independent-', dir=repo/'dist') as temp
                 checked.append({'event':event,'variant':variant,'seconds':len(expected)/48000,'correlation':score})
             print('FMOD direct WAV:',event,'5/5',flush=True)
     finally: os.chdir(previous)
-    Path(os.environ.get('ANNOUNCER_VALIDATION_REPORT', str(repo/'docs/v1.4.2-validation.json'))).write_text(json.dumps({'version':'1.4.2','runtime_hooks':'passed','ultra_regressions':'24 consecutive waves, post-dash 1.2x landing followed by normal/super jump, one announcement, invalid multipliers, stale landing cancellation, coyote jumps in both directions and grace expiration, strict pre-jump speed magnitude >240 boundaries and vertical component passed','bubble_regressions':'manual green and red exits, duplicate guard passed','event_volumes':'13 controls, defaults, live changes, mute and master multiplication passed','game_api_members':'92 verified', 'runtime_checks':int(runtime.stdout.strip().split()[-1]),
+    Path(os.environ.get('ANNOUNCER_VALIDATION_REPORT', str(repo/'docs/v1.4.3-validation.json'))).write_text(json.dumps({'version':'1.4.3','runtime_hooks':'passed','ultra_regressions':'TechAnnouncer 1.0.1 collision-setter mark, normal-state Jump, strict pre-jump magnitude >240, SuperJump clears mark, original-call timing, persistence and repeated waves passed','bubble_regressions':'vanilla green/red, Frost blue/yellow and custom red exits, crouch input, dynamic state IDs, duplicate guard, disabled fastbubble, late loading and teardown passed','demo_regressions':'TechAnnouncer 1.0.1: corrected Y<=0 and Ducking after orig during DashCoroutine.MoveNext; flag-only and external precision ignored, yield/factory/cleanup/exception scope, repeated precision calls, disable/mute/missing audio passed','event_volumes':'13 controls, defaults, live changes, mute and master multiplication passed','game_api_members':str(api_members)+' verified','optional_api_contracts':'installed FrostHelper 1.81.0 and RuntimeDetour constructor verified','native_detour_checks':'passed using game .NET 8 and real RuntimeDetour', 'runtime_checks':int(runtime.stdout.strip().split()[-1]),
         'template_required':False,'fmod_version':'1.10.20','clips':checked,'gameplay_tested':False},indent=2),encoding='utf-8')
 print('PASS: template-free generation, runtime hooks, inputs, 65 direct WAV clips through gameplay SFX bus.')

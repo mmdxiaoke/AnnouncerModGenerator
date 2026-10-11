@@ -39,9 +39,11 @@ if (-not (Test-Path -LiteralPath $taskCompiler)) { throw 'Windows .NET Framework
 Push-Location $taskRoot
 try {
     # Compile only original API declarations; no game files are bundled or needed.
+    & $taskCompiler /nologo /target:library /out:dependencies\MonoMod.RuntimeDetour.dll tests\stubs\RuntimeDetour.cs
+    if ($LASTEXITCODE -ne 0) { throw 'Detour test declaration compilation failed.' }
     & $taskCompiler /nologo /target:library /out:dependencies\FNA.dll tests\stubs\FNA.cs
     if ($LASTEXITCODE -ne 0) { throw 'API declaration compilation failed.' }
-    & $taskCompiler /nologo /target:library /out:dependencies\Celeste.dll /reference:dependencies\FNA.dll tests\stubs\Celeste.cs
+    & $taskCompiler /nologo /target:library /out:dependencies\Celeste.dll /reference:dependencies\FNA.dll /reference:dependencies\MonoMod.RuntimeDetour.dll tests\stubs\Celeste.cs
     if ($LASTEXITCODE -ne 0) { throw 'API declaration compilation failed.' }
     & $taskCompiler /nologo /target:library /out:dependencies\MMHOOK_Celeste.dll /reference:dependencies\Celeste.dll /reference:dependencies\FNA.dll tests\stubs\MMHOOK_Celeste.cs
     if ($LASTEXITCODE -ne 0) { throw 'Hook declaration compilation failed.' }

@@ -8,7 +8,7 @@ Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独
 
 ## 使用
 
-1. 从本仓库的 Releases 下载 **v1.4.2 或更新版本**的工具 ZIP 并解压。
+1. 从本仓库的 Releases 下载 **v1.4.3 或更新版本**的工具 ZIP 并解压。
 2. 从 [FFmpeg 官方下载页](https://ffmpeg.org/download.html) 选择 Windows 构建，将解压后的 `ffmpeg.exe` 放在程序旁边，也可以在界面中指定路径。
 3. 双击 `AnnouncerMod生成器.exe`，点击所需项目旁的“管理…”，添加、移除或清空音频。列表可向下滚动查看死亡和草莓项目。每行音量可设置为 0–100%（默认 100%，0 表示静音）。填写语音包名字，点击“生成 Mod ZIP”。
 4. 将生成的 ZIP 放入蔚蓝 `Mods` 文件夹。在 Mod 选项中开启你填写的名字对应的 **Enabled**，可用 **Volume（0–10）** 调节总音量，也可分别设置每种播报的 **…Volume（0–100）**；关闭 TechAnnouncer、NeuroAnnouncer 等其他技巧播报的 Enabled，避免重复播报。
@@ -38,6 +38,14 @@ Windows 图形工具：自选音频，自动生成 Everest 版《蔚蓝》的独
 每项多条音频可命名为 `death_1.mp3` 至 `death_5.mp3`；也支持 `death1.mp3`、`death-1.mp3`、中文事件名称。文件夹匹配超过五条时会提示处理，不会静默丢弃。
 
 带金草莓死亡仅触发 `goldendeath`，不会额外触发普通死亡；金草莓收集仅触发 `goldenstrawberry`。对应项目留空时保持静音，不回退到普通事件。收集指草莓被正式吃掉，不是刚碰到并开始跟随；同一草莓不会重复播报。无敌状态下未实际死亡也不会播报。支持原版 `Strawberry` 及其子类，另有自定义收集机制的模组草莓不保证适用。
+
+## v1.4.3：FrostHelper 泡泡兼容与 Ultra / Demo 优化
+
+支持 FrostHelper 的特殊泡泡，进一步优化 Ultra、Demo。
+
+请下载 `AnnouncerModGenerator-v1.4.3.zip`，用新版重新生成语音包，替换旧 ZIP 并重启游戏。仅更新生成器不会改变已经生成的模组。判定规则见 [独立运行原理](docs/independent-runtime.md)。
+
+自动验证通过 5,287 项运行检查、96 个游戏 API 成员核对、实际 RuntimeDetour 安装与卸载、65 条 WAV 经蔚蓝 FMOD 实际播放比对及解压后的下载包生成检查。游戏内操作尚未实测；验证记录见 [v1.4.3 检查记录](docs/v1.4.3-validation.json)。
 
 ## v1.4.2：Ultra 狼跳帧与速度门槛
 
@@ -77,7 +85,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 
 脚本从 NuGet 官方源下载固定版本的 Mono.Cecil，并检查包的 SHA-256，输出到 `dist`。离线编译可通过 `-CecilPath` 指定已有的 Mono.Cecil 0.10.4 DLL。独立运行程序使用本项目编写的最小 API 声明编译，无需游戏文件；这些声明只是构建/测试辅助，不会放入下载包或生成的 Mod。
 
-`scripts/package.ps1` 将程序、Mono.Cecil、使用说明及许可打包为 v1.4.2 下载包。脚本按文件清单打包，即使本地 `dist` 存在模板、FFmpeg、游戏 DLL 或用户音频，也不会包含它们。
+`scripts/package.ps1` 将程序、Mono.Cecil、使用说明及许可打包为当前的 v1.4.3 下载包。脚本按文件清单打包，即使本地 `dist` 存在模板、FFmpeg、游戏 DLL 或用户音频，也不会包含它们。
 
 ## 命令行
 

@@ -1,7 +1,7 @@
 ﻿param([string]$OutputPath)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
-if (-not $OutputPath) { $OutputPath = Join-Path $taskRoot 'dist\AnnouncerModGenerator-v1.4.2.zip' }
+if (-not $OutputPath) { $OutputPath = Join-Path $taskRoot 'dist\AnnouncerModGenerator-v1.4.3.zip' }
 $taskOutputFull = [IO.Path]::GetFullPath($OutputPath)
 if (Test-Path -LiteralPath $taskOutputFull) { throw 'Output already exists; choose a new path.' }
 Add-Type -AssemblyName System.IO.Compression.FileSystem

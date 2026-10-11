@@ -1,4 +1,4 @@
-// Original API declarations/test doubles. Never included in distributions.
+﻿// Original API declarations/test doubles. Never included in distributions.
 using System; using System.Collections.Generic; using System.Reflection; using Microsoft.Xna.Framework;
 [assembly: AssemblyVersion("1.0.0.0")]
 namespace Monocle {
@@ -13,7 +13,10 @@ namespace Celeste {
  public class Leader:Monocle.Component { public List<Follower> Followers=new List<Follower>(); }
  public class Follower:Monocle.Component { public Leader Leader; }
  public class Player:Monocle.Entity {
-  public Leader Leader=new Leader(); public bool Dead { get; set; } public bool Ducking { get; set; }
+  public Leader Leader=new Leader(); public bool Dead { get; set; } bool ducking; public bool Ducking { get { return ducking; } set {
+   var handler=MonoMod.RuntimeDetour.Hook.TestFind("Celeste.Player","set_Ducking") as Action<Action<Player,bool>,Player,bool>;
+   if(handler==null)ducking=value;else handler(delegate(Player p,bool v){p.ducking=v;},this,value);
+  } }
   public float jumpGraceTimer;
   public Vector2 Speed,DashDir,lastAim; public Facings Facing=Facings.Right;
   public Monocle.StateMachine StateMachine=new Monocle.StateMachine();
@@ -29,7 +32,7 @@ namespace Celeste {
 namespace Celeste.Mod {
  public class EverestModuleSettings { }
  public class SettingRangeAttribute:Attribute { public SettingRangeAttribute(int min,int max) { } }
- public abstract class EverestModule { public EverestModuleSettings _Settings { get; set; } public virtual Type SettingsType { get { return null; } } public virtual void Load() { } public virtual void Unload() { } }
+ public abstract class EverestModule { public EverestModuleSettings _Settings { get; set; } public virtual Type SettingsType { get { return null; } } public virtual void Initialize() { } public virtual void Load() { } public virtual void Unload() { } }
  public static class Logger { public static void Log(string tag,string message) { Console.WriteLine(tag+": "+message); } }
 }
 namespace FMOD {

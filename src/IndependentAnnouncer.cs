@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -102,10 +102,16 @@ public sealed class AnnouncerModule : EverestModule {
     bool loaded, busLocked, audioErrorLogged;
     class Dash {
         public Vector2 Direction;
-        public int Serial, UltraDirection;
-        public float UltraSpeed;
-        public bool Airborne, Fresh, BubbleAnnounced, PendingUltra, LandedThisUpdate;
+        public bool Airborne, Fresh, BubbleAnnounced;
     }
+    // TechAnnouncer 1.0.1 records the Ducking setter inside vertical collisions.
+    bool ultraDucked;
+    int collidingVDepth, dashCoroutineDepth;
+    IDisposable duckHook, frostHook;
+    EventInfo frostBeginEvent;
+    Delegate frostBeginHandler;
+    FieldInfo frostBoostState, frostRedBoostState;
+    bool frostScanPending;
     static readonly Dictionary<string, FieldInfo> Fields = new Dictionary<string, FieldInfo>();
     static readonly FieldInfo Collected = typeof(Strawberry).GetField("collected", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
     static T Field<T>(Player player, string name, T fallback) {
@@ -126,8 +132,13 @@ public sealed class AnnouncerModule : EverestModule {
                 }
             }
         }
+        duckHook = CreateHook(typeof(Player).GetProperty("Ducking").GetSetMethod(),
+            new Action<Action<Player, bool>, Player, bool>(SetDucking));
+        AppDomain.CurrentDomain.AssemblyLoad += AssemblyLoaded;
+        TryHookFrost();
         On.Celeste.Player.CallDashEvents += CallDash;
         On.Celeste.Player.DashCoroutine += DashCoroutine;
+        On.Celeste.Player.CorrectDashPrecision += CorrectDashPrecision;
         On.Celeste.Player.BoostBegin += BoostBegin;
         On.Celeste.Player.SuperJump += SuperJump;
         On.Celeste.Player.Jump += Jump;
@@ -141,10 +152,18 @@ public sealed class AnnouncerModule : EverestModule {
         On.Celeste.Strawberry.OnCollect += Collect;
         loaded = true;
     }
+    public override void Initialize() {
+        if (loaded && frostHook == null) TryHookFrost();
+    }
     public override void Unload() {
         if (!loaded) return;
+        AppDomain.CurrentDomain.AssemblyLoad -= AssemblyLoaded;
+        UnhookFrost();
+        if (duckHook != null) duckHook.Dispose(); duckHook = null;
+        ultraDucked = false; collidingVDepth = 0; dashCoroutineDepth = 0; frostScanPending = false;
         On.Celeste.Player.CallDashEvents -= CallDash;
         On.Celeste.Player.DashCoroutine -= DashCoroutine;
+        On.Celeste.Player.CorrectDashPrecision -= CorrectDashPrecision;
         On.Celeste.Player.BoostBegin -= BoostBegin;
         On.Celeste.Player.SuperJump -= SuperJump;
         On.Celeste.Player.Jump -= Jump;
@@ -208,29 +227,77 @@ public sealed class AnnouncerModule : EverestModule {
             else voice.Channel.setVolume(gain);
         }
     }
-    static bool KeepsUltraSpeed(Player self, Dash dash) {
-        return Math.Sign(self.Speed.X) == dash.UltraDirection && Math.Abs(self.Speed.X) >= dash.UltraSpeed / 1.2f - .01f;
+    static IDisposable CreateHook(MethodBase method, Delegate handler) {
+        Type hookType = Type.GetType("MonoMod.RuntimeDetour.Hook, MonoMod.RuntimeDetour", true);
+        ConstructorInfo constructor = hookType.GetConstructor(new[] { typeof(MethodBase), typeof(Delegate) });
+        if (method == null || constructor == null) throw new InvalidOperationException("Required game hook API unavailable.");
+        // RuntimeDetour is supplied by Everest, never bundled into the generator.
+        return (IDisposable)constructor.Invoke(new object[] { method, handler });
     }
-    static bool HasGroundJumpWindow(Player self) {
-        // Use the game's current coyote timer instead of inventing another
-        // window: a player can still ground-jump after leaving the ledge.
-        return Field(self, "onGround", false) || Field(self, "jumpGraceTimer", 0f) > 0;
+    void SetDucking(Action<Player, bool> orig, Player self, bool value) {
+        if (collidingVDepth > 0 && value) ultraDucked = true;
+        orig(self, value);
     }
-    void CancelUltra(Player self) {
-        Dash dash;
-        if (dashes.TryGetValue(self, out dash)) { dash.PendingUltra = false; dash.Fresh = false; }
+    void ForgetDash(Player self) {
+        Dash dash; if (dashes.TryGetValue(self, out dash)) dash.Fresh = false;
     }
     void Update(On.Celeste.Player.orig_Update orig, Player self) {
-        orig(self);
-        Dash dash;
-        if (dashes.TryGetValue(self, out dash) && dash.PendingUltra) {
-            // onGround is sampled before movement, so it can still be false in
-            // the Update that ran the landing callback. Allow that frame only.
-            bool landed = dash.LandedThisUpdate; dash.LandedThisUpdate = false;
-            if (self.Dead || self.StateMachine.State != 0 || !KeepsUltraSpeed(self, dash) || self.Speed.Y < -.01f ||
-                (!landed && !HasGroundJumpWindow(self))) dash.PendingUltra = false;
+        if (frostScanPending) TryHookFrost();
+        orig(self); Refresh();
+    }
+    void AssemblyLoaded(object sender, AssemblyLoadEventArgs args) {
+        string name = args.LoadedAssembly.GetName().Name;
+        if (name == "FrostTempleHelper" || name == "FrostHelper") frostScanPending = true;
+    }
+    void TryHookFrost() {
+        frostScanPending = false;
+        if (frostHook != null) return;
+        Type booster = null;
+        foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies()) {
+            booster = assembly.GetType("FrostHelper.Entities.Boosters.GenericCustomBooster", false);
+            if (booster != null) break;
         }
-        Refresh();
+        if (booster == null) return;
+        try {
+            MethodInfo update = booster.GetMethod("BoostUpdate", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(Monocle.Entity) }, null);
+            frostBoostState = booster.GetField("CustomBoostState", BindingFlags.Public | BindingFlags.Static);
+            frostRedBoostState = booster.GetField("CustomRedBoostState", BindingFlags.Public | BindingFlags.Static);
+            frostBeginEvent = booster.GetEvent("OnBoostBegin", BindingFlags.Public | BindingFlags.Static);
+            if (update == null || update.ReturnType != typeof(int) || frostBoostState == null ||
+                frostRedBoostState == null || frostBoostState.FieldType != typeof(int) ||
+                frostRedBoostState.FieldType != typeof(int) || frostBeginEvent == null)
+                throw new InvalidOperationException("Unsupported FrostHelper booster API.");
+            frostBeginHandler = Delegate.CreateDelegate(frostBeginEvent.EventHandlerType, this,
+                GetType().GetMethod("FrostBegin", BindingFlags.Instance | BindingFlags.NonPublic));
+            frostHook = CreateHook(update, new Func<Func<Monocle.Entity, int>, Monocle.Entity, int>(FrostUpdate));
+            frostBeginEvent.AddEventHandler(null, frostBeginHandler);
+        } catch (Exception error) {
+            UnhookFrost();
+            Logger.Log(GetType().Assembly.GetName().Name, "FrostHelper fast bubble compatibility: " + error.Message);
+        }
+    }
+    void UnhookFrost() {
+        if (frostBeginEvent != null && frostBeginHandler != null) frostBeginEvent.RemoveEventHandler(null, frostBeginHandler);
+        if (frostHook != null) frostHook.Dispose();
+        frostHook = null; frostBeginEvent = null; frostBeginHandler = null;
+        frostBoostState = null; frostRedBoostState = null;
+    }
+    void FrostBegin(Player self, Monocle.Entity booster) {
+        ForgetDash(self); dashes.GetOrCreateValue(self).BubbleAnnounced = false;
+    }
+    int FrostUpdate(Func<Monocle.Entity, int> orig, Monocle.Entity entity) {
+        Player self = entity as Player;
+        bool inBubble = self != null && self.StateMachine.State == (int)frostBoostState.GetValue(null);
+        int next = orig(entity);
+        // Only BoostUpdate's manual exit returns a dash state; timed exits use
+        // the separate coroutine. Read custom state IDs at the time of the call.
+        if (inBubble && (next == 2 || next == (int)frostRedBoostState.GetValue(null))) AnnounceBubble(self);
+        return next;
+    }
+    void AnnounceBubble(Player self) {
+        Dash dash = dashes.GetOrCreateValue(self);
+        if (!dash.BubbleAnnounced) { dash.BubbleAnnounced = true; Announce("fastbubble"); }
     }
     void CallDash(On.Celeste.Player.orig_CallDashEvents orig, Player self) {
         bool already = Field(self, "calledDashEvents", false);
@@ -241,78 +308,69 @@ public sealed class AnnouncerModule : EverestModule {
         Vector2 aim = Field(self, "lastAim", self.DashDir);
         // Ground contact can flatten a downward dash before this callback.
         if (self.Ducking && Math.Abs(aim.X) > .01f && aim.Y > .01f) dash.Direction = aim;
-        dash.Airborne = !Field(self, "dashStartedOnGround", true); dash.PendingUltra = false; dash.LandedThisUpdate = false; dash.Fresh = true;
-        dash.Serial++;
-        if (Math.Abs(self.DashDir.X) > .01f && Math.Abs(self.DashDir.Y) < .01f && (self.Ducking || Field(self, "demoDashed", false))) Announce("demodash");
+        dash.Airborne = !Field(self, "dashStartedOnGround", true); dash.Fresh = true;
     }
     void SuperJump(On.Celeste.Player.orig_SuperJump orig, Player self) {
         bool duck = self.Ducking; Dash dash;
         bool wave = dashes.TryGetValue(self, out dash) && dash.Fresh && dash.Airborne && Math.Abs(dash.Direction.X) > .01f && dash.Direction.Y > .01f;
-        bool ultra = TakeUltra(self, dash);
+        ultraDucked = false; ForgetDash(self);
         orig(self);
-        if (ultra && self.Speed.Y < -.01f) Announce("ultradash");
-        else Announce(duck ? (wave ? "wavedash" : "hyperdash") : "superdash");
-    }
-    static bool TakeUltra(Player self, Dash dash) {
-        if (dash == null) return false;
-        // Match TechAnnouncer's strict pre-jump Speed.LengthSquared() > 57600.
-        // Include vertical speed during coyote time; do not count jump acceleration.
-        bool ultra = dash.PendingUltra && !self.Dead && self.StateMachine.State == 0 &&
-            HasGroundJumpWindow(self) && KeepsUltraSpeed(self, dash) &&
-            self.Speed.X * self.Speed.X + self.Speed.Y * self.Speed.Y > 240f * 240f;
-        // Consume before orig to prevent nested hooks or later jumps replaying it.
-        dash.PendingUltra = false; dash.Fresh = false;
-        return ultra;
+        Announce(duck ? (wave ? "wavedash" : "hyperdash") : "superdash");
     }
     void Jump(On.Celeste.Player.orig_Jump orig, Player self, bool particles, bool playSfx) {
-        Dash dash; dashes.TryGetValue(self, out dash);
-        bool ultra = TakeUltra(self, dash);
-        orig(self, particles, playSfx);
-        if (ultra && self.Speed.Y < -.01f) Announce("ultradash");
+        // Match TechAnnouncer 1.0.1: test and consume before the original Jump.
+        // It does not require a measured 1.2x gain, ground contact or jump grace.
+        if (ultraDucked && self.StateMachine.State == 0) {
+            if (self.Speed.X * self.Speed.X + self.Speed.Y * self.Speed.Y > 57600f) Announce("ultradash");
+            ultraDucked = false;
+        }
+        ForgetDash(self); orig(self, particles, playSfx);
     }
-    void WallBounce(On.Celeste.Player.orig_SuperWallJump orig, Player self, int dir) { CancelUltra(self); orig(self, dir); Announce("wallbounce"); }
+    void WallBounce(On.Celeste.Player.orig_SuperWallJump orig, Player self, int dir) { ForgetDash(self); orig(self, dir); Announce("wallbounce"); }
     void WallJump(On.Celeste.Player.orig_WallJump orig, Player self, int dir) {
-        bool neutral = Input.MoveX.Value == 0; CancelUltra(self); orig(self, dir); if (neutral) Announce("neutral");
+        bool neutral = Input.MoveX.Value == 0; ForgetDash(self); orig(self, dir); if (neutral) Announce("neutral");
     }
     void ClimbJump(On.Celeste.Player.orig_ClimbJump orig, Player self) {
         float before = self.Speed.X * (int)self.Facing;
         bool corner = before > 0 && !Field(self, "onGround", true) && !self.CollideCheck<Solid>(self.Position + new Vector2((int)self.Facing, -6));
-        CancelUltra(self); orig(self);
+        ForgetDash(self); orig(self);
         if (corner && self.Speed.X * (int)self.Facing > before && self.Speed.Y < 0) Announce("cornerboost");
     }
     void CollideV(On.Celeste.Player.orig_OnCollideV orig, Player self, CollisionData data) {
-        Vector2 direction = self.DashDir; float speed = Math.Abs(self.Speed.X);
-        Dash dash = dashes.GetOrCreateValue(self); int serial = dash.Serial;
-        // A Wave can also get a collision multiplier during StDash. Only a
-        // completed diagonal-down dash landing in StNormal can arm Ultra.
-        bool eligible = dash.Fresh && self.StateMachine.State == 0 && self.Speed.Y > 0 && speed > .01f &&
-            Math.Abs(direction.X) > .01f && direction.Y > .01f &&
-            Math.Abs(dash.Direction.X) > .01f && dash.Direction.Y > .01f &&
-            Math.Sign(self.Speed.X) == Math.Sign(direction.X);
-        orig(self, data);
-        float boosted = speed * 1.2f;
-        if (eligible && dash.Serial == serial && self.StateMachine.State == 0 &&
-            Math.Abs(self.DashDir.Y) < .01f && Math.Sign(self.DashDir.X) == Math.Sign(direction.X) &&
-            Math.Sign(self.Speed.X) == Math.Sign(direction.X) && Math.Abs(self.Speed.Y) < .01f &&
-            Math.Abs(Math.Abs(self.Speed.X) - boosted) <= Math.Max(.01f, boosted * .001f)) {
-            dash.PendingUltra = true; dash.LandedThisUpdate = true;
-            dash.UltraSpeed = Math.Abs(self.Speed.X); dash.UltraDirection = Math.Sign(self.Speed.X);
-        }
+        collidingVDepth++;
+        try { orig(self, data); }
+        finally { collidingVDepth--; }
+    }
+    Vector2 CorrectDashPrecision(On.Celeste.Player.orig_CorrectDashPrecision orig, Player self, Vector2 direction) {
+        Vector2 corrected = orig(self, direction);
+        // TechAnnouncer 1.0.1 tests the corrected direction during MoveNext only.
+        if (dashCoroutineDepth > 0 && self.Ducking && corrected.Y <= 0) Announce("demodash");
+        return corrected;
     }
     IEnumerator DashCoroutine(On.Celeste.Player.orig_DashCoroutine orig, Player self) {
-        // Starting another dash invalidates the landing even before freeze ends
-        // and CallDashEvents runs. Never treat startup acceleration as Ultra.
-        CancelUltra(self); return orig(self);
+        ForgetDash(self);
+        IEnumerator routine = orig(self);
+        try {
+            while (true) {
+                bool next;
+                dashCoroutineDepth++;
+                try { next = routine.MoveNext(); }
+                finally { dashCoroutineDepth--; }
+                if (!next) yield break;
+                yield return routine.Current;
+            }
+        } finally {
+            IDisposable disposable = routine as IDisposable;
+            if (disposable != null) disposable.Dispose();
+        }
     }
     void BoostBegin(On.Celeste.Player.orig_BoostBegin orig, Player self) {
-        CancelUltra(self); dashes.GetOrCreateValue(self).BubbleAnnounced = false; orig(self);
+        ForgetDash(self); dashes.GetOrCreateValue(self).BubbleAnnounced = false; orig(self);
     }
     int BoostUpdate(On.Celeste.Player.orig_BoostUpdate orig, Player self) {
         bool inBubble = self.StateMachine.State == 4;
-        int next = orig(self); Dash dash = dashes.GetOrCreateValue(self);
-        if (inBubble && (next == 2 || next == 5) && !dash.BubbleAnnounced) {
-            dash.BubbleAnnounced = true; Announce("fastbubble");
-        }
+        int next = orig(self);
+        if (inBubble && (next == 2 || next == 5)) AnnounceBubble(self);
         return next;
     }
     PlayerDeadBody Die(On.Celeste.Player.orig_Die orig, Player self, Vector2 direction, bool evenIfInvincible, bool registerDeathInStats) {
@@ -322,7 +380,7 @@ public sealed class AnnouncerModule : EverestModule {
             if (berry != null && berry.Golden) { golden = true; break; }
         }
         PlayerDeadBody body = orig(self, direction, evenIfInvincible, registerDeathInStats);
-        if (body != null) CancelUltra(self);
+        if (body != null) ForgetDash(self);
         if (!wasDead && body != null) Announce(golden ? "goldendeath" : "death");
         return body;
     }
